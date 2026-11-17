@@ -16,4 +16,4 @@ This port is made using [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Reco
 
 | Build | SHA-1 | Title ID |
 |---|---|---|---|
-| True Crime: Streets of LA, Europe (PAL) (En, Fr, De, Es, It) | 7c665c36d4883e087d949d0b6961dd6465484456 | 4156000E |
+| True Crime: Streets of LA, Europe (PAL) (En, Fr, De, Es, It) | `7c665c36d4883e087d949d0b6961dd6465484456` | `4156000E` |
