@@ -2,7 +2,7 @@
 
 # True Crime: Streets of LA - Xbox Recompilation
 
-### True Crime: Streets of LA PC Port made by recompiling the Original Xbox version and providing full modern PC options
+### An unofficial True Crime: Streets of LA PC Port made by recompiling the Original Xbox version and providing full modern PC options
 
 This port is made using [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) Tool
 
@@ -34,3 +34,24 @@ Full hash: `7c665c36d4883e087d949d0b6961dd6465484456`. A full disc dump or a tri
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/d179c0fa-505d-470a-a277-25970427c021" />
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/9ef02fbf-2500-4dc3-8a8b-461a1b088683" />
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/c2158a3e-06ac-454f-87a8-5ef582ed94ee" />
+
+## Features
+`Final:`
+**Native 720p widescreen** – the game’s own HD layout, which PAL consoles never allowed, now runs on the European release. Though you can switch between Original Stretched and True Widescreen
+**Display Mode** - Option to switch between: *Windowed*, *Fullscreen*, *Borderless*.
+**FPS Option** - The original game's aim is 60 FPS. but in here, you can switch between 30 and 60 FPS whenever you want. Kinda obsolete? but in case for low end glitches
+**Custom Resolution** - Now you can switch between: *800x600*, *1024x768*, *1280x720*, *1600x1200*, *1920x1080*
+**An Exit Button in the Menu** - *An exit button..* ....*an exit button.. yes*
+
+`Plans:`
+**Raw Mouse and Keyboard Input** - An ability to play with Keyboard and Mouse properly just like the official PC Port. Would take alot of time
+**Controller Preset 3** - My inputs. a more modernized control scheme
+**Camera Tweaks** - Fixing the ridiculous R Stick camera by implementing a function similar to the 3D Era Grand Theft Auto Games
+**Filters** - Switching between Xbox's default darker atmosphere, PS2's more blurry aesthetic or PC's cleaner and yellowish look
+
+## To Fix
+*none major reported yet so far*
+
+## Credits
+[Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) - Recompiler Tool
+[RDR-XBERecomp](https://github.com/TGP482/RDR-XBERecomp) - References
