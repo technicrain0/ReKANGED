@@ -6,7 +6,7 @@
 
 This port is made using [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) Tool
 
-<sub><b>No game files included</b>: You need to provide your legally owned True Crime: Streets of LA European (PAL) Xbox Redump, in order for the recompilation to run. <b>Linux support is still on hold<b>: I do not have and use Linux unfortunately. Unless someone contributes to port and test it on Linux, This is Windows only for now</sub>
+<sub><b>No game files included</b>: You need to provide your legally owned True Crime: Streets of LA European (PAL) Xbox Redump, in order for the recompilation to run. <b>Linux support is still on hold</b>: I do not have and use Linux unfortunately. Unless someone contributes to port and test it on Linux, This is Windows only for now</sub>
 
 </div>
 
@@ -32,11 +32,11 @@ Full hash: `7c665c36d4883e087d949d0b6961dd6465484456`. A full disc dump or a tri
 
 **Setup from Release**:
 1. Download the latest archive from [Releases](https://github.com/technicrain0/Streets-of-LA-Recomp/releases) and extract it.
-2. Put your chosen redump (`.iso`) or extracted xbe with your data folder beside it (`\Data and default.xbe`) into the `\assets` folder
+2. Put your chosen redump (`.iso`) or extracted xbe with your data folder beside it (`Data` folder and `default.xbe`) into the `assets` folder
 3. Run `build.bat` 
-4. Wait until it finishes
-5. Press `Y` after it says "Play Now?: (Y/N)"?
-6. To find your generated build. Go To: `\out\build\release` and run `TrueCrimeLA.exe`
+4. Wait until it finishes. the first build takes 30 to 90 minutes
+5. Press `Y` after it says "Play Now? (Y/N)"?
+6. To find your generated build. Go To: `out\build\release` and run `TrueCrimeLA.exe`
 
 **Building from Source (Optional)**:
 For the newest changes before a release. Clone the repository instead of downloading the archive, then follow the same steps from step 2:
