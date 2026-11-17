@@ -32,7 +32,6 @@ Full hash: `7c665c36d4883e087d949d0b6961dd6465484456`. A full disc dump or a tri
 
 **Setup from Release**:
 1. Download the latest archive from [Releases](https://github.com/technicrain0/Streets-of-LA-Recomp/releases) and extract it.
-*Optional 1*. Alternatively: Download the Source Code by Clicking `<> Code` and `Download ZIP`, and extract it.
 2. Put your chosen redump (`.iso`) or extracted xbe with your data folder beside it (`Data` folder and `default.xbe`) into the `assets` folder
 3. Run `build.bat` 
 4. Wait until it finishes. the first build takes 30 to 90 minutes
