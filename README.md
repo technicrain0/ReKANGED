@@ -56,6 +56,7 @@ Full hash: `7c665c36d4883e087d949d0b6961dd6465484456`. A full disc dump or a tri
 - **Controller Preset 3** - My inputs. a more modernized control scheme
 - **Camera Tweaks** - Fixing the ridiculous R Stick camera by implementing a function similar to the 3D Era Grand Theft Auto Games
 - **Filters** - Switching between Xbox's default darker atmosphere, PS2's more blurry aesthetic or PC's cleaner and yellowish look
+- **Free Aim** - Similar to Resident Evil 4 (2005) or GTA San Andreas (2004)
 
 ## To Fix
 - Minor Audio Bugs - Loud Screeches and Choppy Noises
