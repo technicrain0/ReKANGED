@@ -6,6 +6,8 @@
 
 This port is made using [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) Tool
 
+<sub><b>No game files included</b>: You need to provide your legally owned True Crime: Streets of LA European (PAL) Xbox Redump, in order for the recompilation to run</sub>
+
+</div>
+
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/9773a81b-04ab-4e54-ba4b-e80dc162a203" />
-
-
