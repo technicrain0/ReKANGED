@@ -69,5 +69,5 @@ To update later: `git pull`, then run `build.bat` again. Your files in `assets` 
 - *none major reported yet so far*
 
 ## Credits
-[Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) - Recompiler Tool
-[RDR-XBERecomp](https://github.com/TGP482/RDR-XBERecomp) - For References
+- [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) - Recompiler Tool
+- [RDR-XBERecomp](https://github.com/TGP482/RDR-XBERecomp) - For References
