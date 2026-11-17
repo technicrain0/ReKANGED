@@ -31,6 +31,6 @@ Full hash: `7c665c36d4883e087d949d0b6961dd6465484456`. A full disc dump or a tri
 5. To find your generated build. Go To: `\out\build` and run `TrueCrimeLA.exe`
 
 ## Screenshots
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/31161703-f6d5-4c7a-8893-5b1ff24a6a46" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/d179c0fa-505d-470a-a277-25970427c021" />
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/9ef02fbf-2500-4dc3-8a8b-461a1b088683" />
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/c2158a3e-06ac-454f-87a8-5ef582ed94ee" />
