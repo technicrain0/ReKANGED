@@ -37,7 +37,7 @@ Full hash: `7c665c36d4883e087d949d0b6961dd6465484456`. A full disc dump or a tri
 
 ## Features
 `Final:`
-- **Native 720p widescreen** – the game’s own HD layout, which PAL consoles never allowed, now runs on the European release. Though you can switch between Original Stretched and True Widescreen
+- **Native 720p Widescreen** – the game’s own HD layout, which PAL consoles never allowed, now runs on the European release. Though you can switch between Original Stretched and True Widescreen
 - **Display Mode** - Option to switch between: *Windowed*, *Fullscreen*, *Borderless*.
 - **FPS Option** - The original game's aim is 60 FPS. but in here, you can switch between 30 and 60 FPS whenever you want. Kinda obsolete? but in case for low end glitches
 - **Custom Resolution** - Now you can switch between: *800x600*, *1024x768*, *1280x720*, *1600x1200*, *1920x1080*
@@ -50,8 +50,8 @@ Full hash: `7c665c36d4883e087d949d0b6961dd6465484456`. A full disc dump or a tri
 - **Filters** - Switching between Xbox's default darker atmosphere, PS2's more blurry aesthetic or PC's cleaner and yellowish look
 
 ## To Fix
-*none major reported yet so far*
+- *none major reported yet so far*
 
 ## Credits
 [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) - Recompiler Tool
-[RDR-XBERecomp](https://github.com/TGP482/RDR-XBERecomp) - References
+[RDR-XBERecomp](https://github.com/TGP482/RDR-XBERecomp) - For References
