@@ -6,4 +6,5 @@
 
 This port is made using [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) Tool
 
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/4a12511c-0fdf-4fdd-b40c-6cef5fdc6574" />
+<img width="1392" height="811" alt="image" src="https://github.com/user-attachments/assets/48668db5-afd5-4496-b043-02ef2234f1a5" />
+
