@@ -38,14 +38,6 @@ Full hash: `7c665c36d4883e087d949d0b6961dd6465484456`. A full disc dump or a tri
 5. Press `Y` after it says "Play Now? (Y/N)"?
 6. To find your generated build. Go To: `out\build\release` and run `TrueCrimeLA.exe`
 
-**Building from Source (Optional)**:
-For the newest changes before a release. Clone the repository instead of downloading the archive, then follow the same steps from step 2:
-```
-git clone https://github.com/technicrain0/Streets-of-LA-Recomp.git
-cd Streets-of-LA-Recomp
-```
-To update later: `git pull`, then run `build.bat` again. Your files in `assets` are kept.
-
 ## Screenshots
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/d179c0fa-505d-470a-a277-25970427c021" />
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/9ef02fbf-2500-4dc3-8a8b-461a1b088683" />
