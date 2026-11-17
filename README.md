@@ -58,7 +58,7 @@ Full hash: `7c665c36d4883e087d949d0b6961dd6465484456`. A full disc dump or a tri
 - **Filters** - Switching between Xbox's default darker atmosphere, PS2's more blurry aesthetic or PC's cleaner and yellowish look
 
 ## To Fix
-- *none major reported yet so far*
+- Minor Audio Bugs - Loud Screeches and Choppy Noises
 
 ## Credits
 - [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) - Recompiler Tool
