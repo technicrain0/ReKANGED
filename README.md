@@ -29,7 +29,7 @@ Full hash: `7c665c36d4883e087d949d0b6961dd6465484456`. A full disc dump or a tri
 - Windows 10/11 64-bit, GPU with Direct3D 12
 - [Visual Studio 2022](https://visualstudio.microsoft.com/) with **Desktop development with C++** (`build.bat` offers to add the Clang and CMake tools)
 - [Git for Windows](https://git-scm.com/download/win) and an internet connection for the first build
-- Your own European (PAL) Xbox disc image of the game
+- Your own supported Xbox disc image of the game (See above for supported versions)
 
 **Setup from Release**:
 1. Download the latest archive from [Releases](https://github.com/technicrain0/Streets-of-LA-Recomp/releases) and extract it.
