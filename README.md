@@ -52,14 +52,17 @@ Full hash: `7c665c36d4883e087d949d0b6961dd6465484456`. A full disc dump or a tri
 - **An Exit Button in the Menu** - *An exit button..* ....*an exit button.. yes*
 
 `Plans:`
+- **Dedicated Launcher and GUI** - Instead of a cmd window
 - **Raw Mouse and Keyboard Input** - An ability to play with Keyboard and Mouse properly just like the official PC Port. Would take alot of time
 - **Controller Preset 3** - My inputs. a more modernized control scheme
 - **Camera Tweaks** - Fixing the ridiculous R Stick camera by implementing a function similar to the 3D Era Grand Theft Auto Games
 - **Filters** - Switching between Xbox's default darker atmosphere, PS2's more blurry aesthetic or PC's cleaner and yellowish look
 - **Free Aim** - Similar to the Official PC Port. Can be applied if Raw KBM is implemented
+- **Japanese Dub** - From the Japanese ISO
+- **Support For Multiple Xisos and Isos** - For Accessibility
 
 ## To Fix
-- Minor Audio Bugs - Loud Screeches and Choppy Noises
+- **Minor Audio Bugs** - Loud Screeches and Choppy Noises
 
 ## Credits
 - [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) - Recompiler Tool
