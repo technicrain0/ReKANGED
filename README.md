@@ -17,6 +17,7 @@ This port is made using [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Reco
 | Build | Disc | Role | default.xbe SHA-1 |
 |---|---|---|---|
 | 4156000E Europe (PAL) | Xbox DVD, En/Fr/De/Es/It, XDK 5659 | Base game, required, plays on its own | `7c665c36…6456` |
+| 4156000E Europe (PAL), English-only disc | Xbox DVD, En | Untested, may work if its default.xbe matches | – |
 | USA (NTSC) | not checked | Not supported | – |
 | Japan | not checked | Not supported | – |
 
