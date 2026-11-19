@@ -21,7 +21,7 @@ This port is made using [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Reco
 | USA (NTSC) | not checked | Not supported | – |
 | Japan | not checked | Not supported | – |
 
-Full hash: `7c665c36d4883e087d949d0b6961dd6465484456`. A full disc dump or a trimmed xiso both work, since only the `default.xbe` inside is checked.
+A full disc dump or a trimmed xiso both work, since only the `default.xbe` inside is checked.
 
 ## How To Use
 
