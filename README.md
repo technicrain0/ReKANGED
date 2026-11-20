@@ -60,6 +60,7 @@ A full disc dump or a trimmed xiso both work, since only the `default.xbe` insid
 - **Filters** - Switching between Xbox's default darker atmosphere, PS2's more blurry aesthetic or PC's cleaner and yellowish look
 - **Free Aim** - Similar to the Official PC Port. Can be applied if Raw KBM is implemented
 - **Japanese Dub** - From the Japanese ISO
+- **PC Exclusive Content** - Music Tracks and Costumes
 - **Support For Multiple Xisos and Isos** - For Accessibility
 
 ## To Fix
