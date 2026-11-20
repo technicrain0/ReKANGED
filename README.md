@@ -34,8 +34,7 @@ A full disc dump or a trimmed xiso both work, since only the `default.xbe` insid
 2. Put your chosen redump (`.iso`) or extracted xbe with your data folder beside it (`Data` folder and `default.xbe`) into the `assets` folder
 3. Run `TrueCrimeLA.exe` 
 4. Wait until the tool finishes.
-5. Press `A` after it says "Start the Game Now?"
-6. To find your generated build. Go To: `out\build\release` and run `TrueCrimeLA.exe`
+5. Press `A` after it says "Start the Game Now?" and Play!
 
 ## Screenshots
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/d179c0fa-505d-470a-a277-25970427c021" />
