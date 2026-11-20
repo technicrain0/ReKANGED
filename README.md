@@ -27,16 +27,14 @@ A full disc dump or a trimmed xiso both work, since only the `default.xbe` insid
 
 **Requirements**:
 - Windows 10/11 64-bit, GPU with Direct3D 12
-- [Visual Studio 2022](https://visualstudio.microsoft.com/) with **Desktop development with C++** (`build.bat` offers to add the Clang and CMake tools)
-- [Git for Windows](https://git-scm.com/download/win) and an internet connection for the first build
 - Your own supported Xbox disc image of the game (See above for supported versions)
 
-**Setup from Release**:
+**Setup**:
 1. Download the latest archive from [Releases](https://github.com/technicrain0/Streets-of-LA-Recomp/releases) and extract it.
 2. Put your chosen redump (`.iso`) or extracted xbe with your data folder beside it (`Data` folder and `default.xbe`) into the `assets` folder
-3. Run `build.bat` 
-4. Wait until it finishes. the first build takes 30 to 90 minutes
-5. Press `Y` after it says "Play Now? (Y/N)"?
+3. Run `TrueCrimeLA.exe` 
+4. Wait until the tool finishes.
+5. Press `A` after it says "Start the Game Now?"
 6. To find your generated build. Go To: `out\build\release` and run `TrueCrimeLA.exe`
 
 ## Screenshots
