@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <thread>
+#include <vector>
 
 #include "core/diag.h"
 #include "core/log.h"
@@ -200,6 +202,42 @@ std::string ReadCString(uint32_t va, size_t max) {
     return s;
 }
 
+// [TCSOLA patch] City data cache warm-up. File reads finish before the call returns here (the console's DVD reads
+// pend while the title runs on), so the city streaming the title does on its main thread at the start of a mission and
+// while driving held that thread for 0.6 to 1.5 s at a time on a cold disk cache (356 reads, 12 MB, 891 ms in one
+// second of the log). The title feeds its 2-packet background stream (2 x 209 ms) from the same thread, which ran dry each time:
+// the wind cutting in and out. A low-key background read of Data\City (about 220 MB) at start leaves those files in
+// the host's file cache, so the same reads take milliseconds. Nothing the title reads changes; the warm-up only reads.
+void WarmCityCache(const fs::path& game_dir) {
+    std::thread([game_dir] {
+        std::error_code ec;
+        fs::path city;
+        for (const char* data : {"Data", "data", "DATA"}) {
+            for (const char* sub : {"City", "city", "CITY"}) {
+                if (city.empty() && fs::is_directory(game_dir / data / sub, ec)) city = game_dir / data / sub;
+            }
+        }
+        if (city.empty()) return;
+        auto t0 = std::chrono::steady_clock::now();
+        std::vector<char> buf(1 << 20);
+        uint64_t total = 0;
+        for (const auto& e : fs::directory_iterator(city, ec)) {
+            if (!e.is_regular_file(ec)) continue;
+            FILE* in = std::fopen(e.path().string().c_str(), "rb");  // opened as the title's files are
+            if (!in) continue;
+            size_t got;
+            while ((got = std::fread(buf.data(), 1, buf.size(), in)) > 0) {
+                total += got;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));  // yield the disk to the title's own reads
+            }
+            std::fclose(in);
+        }
+        LOGI("files: city data cache warmed, %llu MB in %lld ms", (unsigned long long)(total >> 20),
+             (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
+                 .count());
+    }).detach();
+}
+
 void MountDefaults(const std::string& game_dir, const std::string& data_dir) {
     std::lock_guard<std::mutex> lock(g_links_lock);
     fs::path d = data_dir;
@@ -227,6 +265,7 @@ void MountDefaults(const std::string& game_dir, const std::string& data_dir) {
     }
     const Disc* disc = MountedDisc();
     LOGI("files: D: is %s, hard disk under %s", disc ? disc->Path().string().c_str() : game_dir.c_str(), data_dir.c_str());
+    if (!disc) WarmCityCache(game_dir);
 }
 
 bool CreateSymbolicLink(const std::string& link, const std::string& target) {
@@ -292,6 +331,14 @@ Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
     // no Xbox name holds ':', and fs::path would take "D:" as a host drive
     for (auto& part : parts)
         if (part.find(':') != std::string::npos) return {};
+    // [TCSOLA patch] assets\extras lies over D:, the disc image or the extracted files alike: a file there is read
+    // instead of the game's, or as well as its own (the PC soundtrack's songs, import_pc_tracks.bat). Files only:
+    // folders are still the game's.
+    if (best->first == kCdRom && !parts.empty()) {
+        fs::path extra = MatchCase(best->second / "extras", parts);
+        std::error_code ec;
+        if (fs::is_regular_file(extra, ec)) return {extra.string()};
+    }
     if (best->first == kCdRom)
         if (const Disc* disc = MountedDisc()) return {{}, true, disc->Find(parts)};
     return {MatchCase(best->second, parts).string()};

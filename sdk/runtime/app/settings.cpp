@@ -56,12 +56,23 @@ void Load() {
     s.texture_dump_format = std::min(t["texture_dump_format"].value_or(s.texture_dump_format), 1u);
     s.join_ip = t["join_ip"].value_or(s.join_ip);
     s.audio_output = std::min(t["audio_output"].value_or(s.audio_output), audio::kOutputMono);
+    s.skid_volume = std::min(t["skid_volume"].value_or(s.skid_volume), 100u);
+    s.boss_triad_thug = t["boss_triad_thug"].value_or(s.boss_triad_thug);
+    if (s.boss_triad_thug > 127) s.boss_triad_thug = 0;
+    s.boss_cary = t["boss_cary"].value_or(s.boss_cary);
+    if (s.boss_cary > 127) s.boss_cary = 0;
+    s.boss_feng = t["boss_feng"].value_or(s.boss_feng);
+    if (s.boss_feng > 127) s.boss_feng = 0;
+    s.boss_sniper = t["boss_sniper"].value_or(s.boss_sniper);
+    if (s.boss_sniper > 127) s.boss_sniper = 0;
     for (const Option& o : kGame.options) {
         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
         else *o.value = t[o.key].value_or(*o.value);
     }
     if (kGame.load) kGame.load(&t);
     audio::SetOutputMode(s.audio_output);
+    // [TCSOLA patch] a settings file from before a setting existed gets it written in, so it can be found and edited
+    if (!t.contains("skid_volume") || !t.contains("boss_triad_thug") || !t.contains("boss_cary") || !t.contains("boss_feng") || !t.contains("boss_sniper")) Save();
 }
 
 namespace {
@@ -80,7 +91,12 @@ toml::table Table() {
                   {"dump_textures", s.dump_textures},
                   {"texture_dump_format", int64_t(s.texture_dump_format)},
                   {"join_ip", s.join_ip},
-                  {"audio_output", int64_t(s.audio_output)}};
+                  {"audio_output", int64_t(s.audio_output)},
+                  {"skid_volume", int64_t(s.skid_volume)},
+                  {"boss_triad_thug", int64_t(s.boss_triad_thug)},
+                  {"boss_cary", int64_t(s.boss_cary)},
+                  {"boss_feng", int64_t(s.boss_feng)},
+                  {"boss_sniper", int64_t(s.boss_sniper)}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));

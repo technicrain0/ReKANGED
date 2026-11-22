@@ -47,6 +47,31 @@ bool Runs(const std::string& sha) {
     return false;
 }
 
+// Bytes some xiso tools change in default.xbe, the media check bypass: file offset, patched byte, original byte.
+// Put back, the xbe is the exact release again; nothing changes for an xbe that is not one of these.
+struct KnownPatch {
+    size_t offset;
+    uint8_t patched, original;
+};
+constexpr KnownPatch kKnownPatches[] = {
+    {0x1DBFB9, 0xEB, 0x7D},  // True Crime: Streets of LA (PAL) xiso: jmp for the jge after the media type check
+};
+
+// undoes a known xiso patch when that makes the xbe one this executable runs; sha is the xbe's SHA-1 then
+bool UndoKnownPatch(std::vector<uint8_t>& xbe, std::string& sha) {
+    for (const KnownPatch& p : kKnownPatches) {
+        if (p.offset >= xbe.size() || xbe[p.offset] != p.patched) continue;
+        xbe[p.offset] = p.original;
+        std::string fixed = Sha1(xbe);
+        if (Runs(fixed)) {
+            sha = fixed;
+            return true;
+        }
+        xbe[p.offset] = p.patched;
+    }
+    return false;
+}
+
 bool ReadHostFile(const fs::path& path, std::vector<uint8_t>& out) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return false;
@@ -88,8 +113,10 @@ bool FindGame(GameFiles& game) {
     fs::path other_name;
     auto consider = [&](const fs::path& name, std::vector<uint8_t> xbe, std::unique_ptr<kernel::Disc> disc) {
         std::string sha = Sha1(xbe);
+        bool repaired = !Runs(sha) && UndoKnownPatch(xbe, sha);
         bool match = Runs(sha);
-        LOGR("Game: %s in %s, sha1 %s%s", IMAGE_XBE, name.string().c_str(), sha.c_str(), match ? "" : ", another release");
+        LOGR("Game: %s in %s, sha1 %s%s", IMAGE_XBE, name.string().c_str(), sha.c_str(),
+             repaired ? ", an xiso tool's patch undone" : match ? "" : ", another release");
         if (match) {
             game = {assets, std::move(xbe)};
             kernel::MountDisc(std::move(disc));

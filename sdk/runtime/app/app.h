@@ -17,10 +17,10 @@ enum class DisplayMode : uint32_t { Fullscreen, Borderless, Windowed };
 inline constexpr uint32_t kFpsCapRefresh = 1;  // fps_cap: the monitor's refresh rate
 
 struct Settings {
-    DisplayMode display_mode = DisplayMode::Fullscreen;  // [TCSOLA patch] fullscreen by default
+    DisplayMode display_mode = DisplayMode::Borderless;  // [TCSOLA patch] borderless by default
     uint32_t width = 0, height = 0;  // 0 is the desktop mode
     uint32_t render_percent = 100;   // of the output height
-    bool wide_screen = false;         // [TCSOLA patch] SCREEN: the 2D unstretched on a widescreen output
+    bool wide_screen = true;          // [TCSOLA patch] SCREEN: the 2D unstretched on a widescreen output (by default)
     uint32_t fps_cap = 60;           // 0 unlimited, kFpsCapRefresh the monitor's refresh rate
     bool vsync = true;
     uint32_t aniso = 0;              // 0 as the game asks
@@ -28,6 +28,11 @@ struct Settings {
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS
     uint32_t audio_output = 0;         // audio::kOutputAuto, Stereo, Surround or Mono
+    uint32_t boss_triad_thug = 0;      // [TCSOLA patch] BOSS TRACK: song for the Triad Thug fight, 0 the game's own
+    uint32_t boss_cary = 0;            // [TCSOLA patch] BOSS TRACK: song for the Cary fight, 0 the game's own
+    uint32_t boss_feng = 0;            // [TCSOLA patch] BOSS TRACK: song for the Feng fight, 0 the game's own
+    uint32_t boss_sniper = 0;          // [TCSOLA patch] BOSS TRACK: song for the Sniper Assassin fight, 0 the game's own
+    uint32_t skid_volume = 50;         // [TCSOLA patch] tyre skid level, percent of what the game asks (0 to 100)
     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
 };
 

@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstring>
 #include <deque>
 #include <map>
 #include <optional>
@@ -177,6 +178,7 @@ constexpr uint32_t kPacketPending = 0x8000000A, kFlushed = 0x80004004;  // E_PEN
 struct Packet {
     uint32_t data, size, completed_ptr, status_ptr, context;
     uint32_t used = 0;
+    bool early = false;  // [TCSOLA patch] copied aside and handed back to the title while it still plays
 };
 
 // DSMIXBIN numbers the host mixes by name
@@ -219,14 +221,19 @@ struct Voice {
     uint32_t data = 0, bytes = 0, loop_start = 0, loop_len = 0, play_start = 0, play_len = 0;
     uint32_t owned = 0;  // memory the library made for the buffer
     bool playing = false, looping = false, paused = false;
+    bool fading = false;  // [TCSOLA patch] stopped, its last few milliseconds still fading out
+    int64_t release_until = 0;  // [TCSOLA patch] StopEx release: plays out to its end, but no later than this
     bool sync = false;  // held until IDirectSound_SynchPlayback
     bool active = false, ending = false;  // stream: took a packet since it went quiet, quiet again once they run out
     bool dry = false;  // [TCSOLA diag] a playing stream with no packet queued, reported once per dry spell
     int64_t dry_at = 0;  // when the dry spell began, steady ms
+    int64_t last_process = 0;  // [TCSOLA diag] the stream's last packet, steady ms
+    float peak = 0;  // [TCSOLA diag] XBE_PERF: the loudest sample it put in the mix this second
     double pos = 0;  // frames
     uint32_t freq = 0;
     // stream
     uint32_t max_packets = 1, callback = 0, context = 0;
+    uint32_t shadow = 0, shadow_size = 0;  // [TCSOLA patch] where a stream's playing packet is copied aside
     std::deque<Packet> packets;
     // levels
     float volume = 1, headroom = 1;
@@ -267,6 +274,8 @@ std::atomic<int64_t> g_pumped{0};          // the last DirectSoundDoWork, steady
 // [TCSOLA diag] XBE_PERF: what the title does to its voices, summed a second at a time
 struct AudioStats {
     uint32_t replay = 0, from_start = 0, set_pos = 0, dry = 0, packets = 0, stops = 0, new_data = 0;
+    float out_peak = 0;     // the loudest sample sent to the speakers
+    uint32_t clipped = 0;   // samples past full scale
     double mix_ms = 0, mix_max = 0;
     uint32_t blocks = 0;
 };
@@ -278,7 +287,7 @@ uint32_t FramesOf(const Voice& v, uint32_t bytes);
 void Trace(const Voice& v, const char* what, uint32_t arg = 0) {
     static int lines = 0;
     static int64_t t0 = NowMs();
-    if (!diag::Perf() || lines >= 1500) return;
+    if (!diag::Perf() || lines >= 4000) return;
     lines++;
     LOGR("voice %08X %-9s %08X | %s tag %X %uch %u Hz freq %u | region %u+%u loop %u+%u bytes, at frame %u of %u | "
          "vol %.2f 3d %d mode %u pos %.0f %.0f %.0f dist %.1f-%.1f | t %.3f",
@@ -508,16 +517,22 @@ float BackShare(float azimuth, float elevation, float dist) {
     return back;
 }
 
-// distance attenuation, 1.0 inside the min distance: min / distance, or the voice's rolloff curve
+// distance attenuation: min / distance, 1.0 inside the min distance; or the voice's rolloff curve
+// [TCSOLA patch] A rolloff curve's first point is its level at the min distance and its last at the max distance,
+// the points spread evenly between. The curve used to start from an implied 1.0 at the min distance, with its own
+// points from there on. The title builds each car sound's curve (0x001D9350) with the sound's volume as the first
+// point, falling to 0 at the max distance, and puts the min distance at 0: so a skid or engine near the camera
+// played at almost full level whatever volume the title asked for, the skid screeching loudest of all.
 float Attenuation(const Voice& v, float dist) {
-    if (dist <= v.min_dist) return 1;
-    if (v.curve.empty()) return v.min_dist / std::min(dist, v.max_dist);
-    if (v.max_dist <= v.min_dist) return 1;
-    // points spread evenly from min to max distance, 1.0 at min
-    float at = (std::min(dist, v.max_dist) - v.min_dist) / (v.max_dist - v.min_dist) * v.curve.size();
-    size_t i = std::min(size_t(at), v.curve.size() - 1);
-    float from = i ? v.curve[i - 1] : 1.0f;
-    return from + (v.curve[i] - from) * (at - i);
+    if (v.curve.empty()) {
+        if (dist <= v.min_dist) return 1;
+        return v.min_dist / std::min(dist, v.max_dist);
+    }
+    size_t n = v.curve.size();
+    if (n == 1 || v.max_dist <= v.min_dist || dist <= v.min_dist) return v.curve[0];
+    float at = std::min((dist - v.min_dist) / (v.max_dist - v.min_dist), 1.0f) * float(n - 1);
+    size_t i = std::min(size_t(at), n - 2);
+    return v.curve[i] + (v.curve[i + 1] - v.curve[i]) * (at - float(i));
 }
 
 // DS3DVOICEDATA dwords: mB levels, pitch, I3DL2 levels and degrees
@@ -660,13 +675,37 @@ struct Cursor {
 };
 
 // the stream's frame at its position, none once its packets ran out
+// [TCSOLA patch] Early hand-back. The title keeps its background stream only two packets of 209 ms ahead and feeds
+// it from its main thread, so any stall of that thread over about 0.4 s (loading city data at a mission's start or
+// while driving into a new area) let it run dry: the wind and ambience cutting in and out. A short packet (300 ms or
+// less) is now copied aside when it starts to play and handed back to the title at once, so the title refills it a
+// whole packet sooner and the stream holds about 0.6 s instead of 0.4 s. Longer packets (speech) are left as they
+// are: the title may let go of a stream as soon as its last packet comes back, and a line would lose its end.
+constexpr double kEarlyPacketSeconds = 0.3;
+void HandBackEarly(Voice& v, Packet& pk) {
+    double hz = double(v.freq ? v.freq : v.rate);
+    if (pk.early || !pk.size || hz <= 0 || FramesOf(v, pk.size) > hz * kEarlyPacketSeconds) return;
+    if (v.shadow_size < pk.size) {
+        if (v.shadow) mem::FreeContiguous(v.shadow);
+        v.shadow = mem::AllocContiguous(pk.size, 0, 0xFFFFFFFF, 4);
+        v.shadow_size = v.shadow ? pk.size : 0;
+        if (!v.shadow) return;
+    }
+    std::memcpy(HostPtr(v.shadow), HostPtr(pk.data), pk.size);
+    pk.data = v.shadow;
+    pk.early = true;
+    pk.used = pk.size;
+    ForgetBlocks(v);
+    Complete(v, pk, 0);
+}
+
 std::optional<Cursor> StreamFrame(Voice& v) {
     uint32_t f = uint32_t(v.pos);
     while (!v.packets.empty() && f >= FramesOf(v, v.packets.front().size)) {
         Packet pk = v.packets.front();
         v.packets.pop_front();
         pk.used = pk.size;
-        Complete(v, pk, 0);
+        if (!pk.early) Complete(v, pk, 0);
         v.pos -= FramesOf(v, pk.size);
         f = uint32_t(v.pos);
     }
@@ -680,8 +719,10 @@ std::optional<Cursor> StreamFrame(Voice& v) {
             static int reported = 0;
             if (reported < 40) {
                 reported++;
-                LOGR("dsound: [TCSOLA diag] stream %08X ran dry, last DirectSoundDoWork %lld ms ago", v.obj,
-                     (long long)(NowMs() - g_pumped));
+                LOGR("dsound: [TCSOLA diag] stream %08X ran dry, last DirectSoundDoWork %lld ms ago, last packet %lld ms "
+                     "ago, takes %u packets, %u Hz %uch tag %X",
+                     v.obj, (long long)(NowMs() - g_pumped), (long long)(NowMs() - v.last_process), v.max_packets,
+                     v.freq ? v.freq : v.rate, v.channels, v.tag);
             }
         }
         if (v.ending) Deactivate(v);
@@ -689,6 +730,7 @@ std::optional<Cursor> StreamFrame(Voice& v) {
     }
     v.dry = false;
     Packet& pk = v.packets.front();
+    HandBackEarly(v, pk);
     Cursor at = {pk.data, f, pk.data, f};
     if (f + 1 < FramesOf(v, pk.size)) {
         at.next_f = f + 1;
@@ -706,6 +748,7 @@ std::optional<Cursor> BufferFrame(Voice& v) {
     uint32_t end = FramesOf(v, v.looping ? v.loop_start + v.loop_len : v.play_len);
     if (f >= end) {
         if (!v.looping || end <= start) {
+            if (v.fading) return std::nullopt;
             Trace(v, "ended", v.looping);
             v.playing = false;
             v.pos = 0;
@@ -726,12 +769,26 @@ std::optional<Cursor> BufferFrame(Voice& v) {
 }
 
 // adds the voice to the bins, frames of kBins interleaved, its levels ramped across the block
+// [TCSOLA patch] De-clicking. A buffer stopped mid-wave used to drop to silence at once and a looping one started
+// at full level at once: each start and stop was a click. The title starts and stops its engine, tyre and wind loops
+// many times a second, and those clicks were heard as screeching while driving and as wind cutting in and out.
+// A stopped buffer now fades out across one block (at most kFadeFrames), and a looping buffer or a stream that
+// starts fresh fades in across its first block. One-shot sounds still start at full level, keeping gunshots sharp.
+constexpr uint32_t kFadeFrames = audio::kRate / 100;  // 10 ms
+
 void MixVoice(Voice& v, float* bins, uint32_t frames) {
     Place at = Locate(v);
-    Gains target = Levels(v, at);
+    Gains target = v.fading ? Gains{} : Levels(v, at);
     float itd = Itd(at.azimuth);
-    if (!v.has_gain) {
-        v.gain = target;
+    if (v.fading && !v.has_gain) {  // nothing was heard yet, nothing to fade
+        v.fading = false;
+        return;
+    }
+    double resume = v.pos;  // a fade does not move where a stopped buffer resumes from
+    if (v.fading) {
+        frames = std::min(frames, kFadeFrames);
+    } else if (!v.has_gain) {
+        v.gain = v.looping || v.stream ? Gains{} : target;
         v.itd = itd;
     }
     v.has_gain = true;
@@ -764,12 +821,19 @@ void MixVoice(Voice& v, float* bins, uint32_t frames) {
         float* frame = bins + size_t(i) * kBins;
         for (Lane& lane : lanes) {
             lane.gain += lane.step;
-            frame[lane.bin] += row[lane.row] * lane.gain;
+            float out = row[lane.row] * lane.gain;
+            frame[lane.bin] += out;
+            v.peak = std::max(v.peak, std::fabs(out));
         }
         v.pos += rate;
     }
     v.gain = target;
     v.itd = itd;
+    if (v.fading) {
+        v.fading = false;
+        v.has_gain = false;
+        v.pos = resume;
+    }
 }
 
 void Render(float* out, uint32_t frames) {
@@ -803,15 +867,45 @@ void Render(float* out, uint32_t frames) {
                  playing, buffers, streams, g_stats.blocks ? g_stats.mix_ms / g_stats.blocks : 0.0, g_stats.mix_max,
                  g_stats.replay, g_stats.from_start, g_stats.set_pos, g_stats.stops, g_stats.new_data,
                  g_stats.packets, g_stats.dry);
+            // [TCSOLA diag] the output level and the loudest voices of the second, to find what screeches
+            LOGR("audio: output peak %.2f, %u samples past full scale", g_stats.out_peak, g_stats.clipped);
+            std::vector<const Voice*> loud;
+            for (auto& [obj, v] : g_voices) {
+                if (v.peak > 0.05f) loud.push_back(&v);
+            }
+            std::sort(loud.begin(), loud.end(), [](const Voice* x, const Voice* y) { return x->peak > y->peak; });
+            for (size_t i = 0; i < loud.size() && i < 4; i++) {
+                const Voice& v = *loud[i];
+                LOGR("audio:   loud %08X peak %.2f | %s tag %X %uch %u Hz freq %u | region %u+%u loop %d | vol %.2f "
+                     "3d %d data %d",
+                     v.obj, v.peak, v.stream ? "stream" : "buffer", v.tag, v.channels, v.rate, v.freq, v.play_start,
+                     v.play_len, int(v.looping), v.volume, int(v.is3d), int(v.use_data));
+            }
+            for (auto& [obj, v] : g_voices) v.peak = 0;
             g_stats = AudioStats{};
             g_stats_at = now;
         }
     } mix_timer{mix_start};
     for (auto& [obj, v] : g_voices) {
-        if (v.paused || v.sync || (!v.stream && !v.playing)) continue;
+        if (v.paused || v.sync || (!v.stream && !v.playing && !v.fading)) continue;
+        if (v.release_until && v.playing && NowMs() >= v.release_until) {  // a StopEx release ran its full time
+            Trace(v, "released");
+            v.playing = false;
+            v.fading = true;
+            v.release_until = 0;
+        }
         MixVoice(v, bins.data(), frames);
     }
     if (dsp::Loaded()) dsp::Run(bins.data(), frames);
+    if (diag::Perf()) {
+        for (uint32_t i = 0; i < frames; i++) {
+            for (uint32_t c = 0; c < audio::kChannels; c++) {
+                float x = std::fabs(bins[size_t(i) * kBins + c]);
+                g_stats.out_peak = std::max(g_stats.out_peak, x);
+                if (x > 1.0f) g_stats.clipped++;
+            }
+        }
+    }
     // the speaker bins in their order, the output folds them for the device
     static_assert(kFrontLeft == 0 && kBackRight + 1 == audio::kChannels);
     for (uint32_t i = 0; i < frames; i++) {
@@ -1277,6 +1371,8 @@ BUFFER(Play, 4) {
         if (a[3] & 2) g_stats.from_start++;
     }
     v.has_gain = false;  // a new sound does not ramp from the last one's levels
+    v.fading = false;
+    v.release_until = 0;
     v.playing = true;
     v.looping = a[3] & 1;
     Trace(v, "Play", a[3]);
@@ -1287,15 +1383,55 @@ BUFFER(Play, 4) {
 BUFFER(Stop, 1) {
     if (v.playing) g_stats.stops++;
     Trace(v, "Stop");
+    if (v.playing && !v.paused && !v.sync) v.fading = true;
     v.playing = false;
+    v.release_until = 0;
     return 0;
 }
-// (this, time low, time high, flags): stops now, the release envelope is not reproduced.
-// (Letting flag 2 play the sound on to the end of its region was tried: the title stops its engine loops a frame
-// after starting them, and twenty copies of one kept playing for five seconds each, a loud screech while driving.)
+// (this, time low, time high, flags)
+// [TCSOLA patch] DSBSTOPEX_RELEASEWAVEFORM (flag 2 alone): the voice leaves its loop and plays on to the end of its
+// region, and stays PLAYING meanwhile. The title plays its engine, tyre and wind loops this way: Play looping, then
+// StopEx(2) a frame later, and it only plays a sound again once GetStatus says it stopped. Stopping at once made
+// GetStatus say stopped at once, so the title replayed the skid loop every 20 to 40 ms and each car's engine every
+// second or so: a buzzing screech while driving and ambience cutting in and out.
+// (An earlier try played the release out with no limit and twenty engine copies droned on for five seconds each.
+// The play-out is now capped at kReleaseMaxMs and fades out there, and replaying the voice ends it, as before.
+// A 1.5 second cap cut idling engines short every second or so, heard as ambience cutting out; with older copies
+// of the same sound replaced below, the cap only has to catch a runaway, so it is 6 seconds.)
+// Any other flags stop now, with the short fade-out.
+// [TCSOLA patch] A sound let go this way replaces an older copy of itself still playing out close by: the title
+// lets go of a new skid loop every few hundred ms while sliding, and four or five copies of it at once added up past
+// full scale, a loud clipped screech. The older copies fade out, the newest plays on.
+constexpr int64_t kReleaseMaxMs = 6000;
+constexpr float kSameSoundMetres = 8.0f;
+void ReplaceOlderReleases(const Voice& v) {
+    for (auto& [obj, w] : g_voices) {
+        if (&w == &v || w.stream || !w.playing || !w.release_until) continue;
+        if (w.data != v.data || w.play_start != v.play_start || w.play_len != v.play_len) continue;
+        if (w.is3d != v.is3d) continue;
+        if (v.is3d) {
+            float d[3] = {w.p[0] - v.p[0], w.p[1] - v.p[1], w.p[2] - v.p[2]};
+            if (Dot(d, d) > kSameSoundMetres * kSameSoundMetres) continue;
+        }
+        Trace(w, "replaced");
+        w.playing = false;
+        w.fading = true;
+        w.release_until = 0;
+    }
+}
 BUFFER(StopEx, 4) {
     Trace(v, "StopEx", a[3]);
+    if ((a[3] & 3) == 2 && v.playing && !v.paused && !v.sync) {
+        if (!v.release_until) {
+            v.release_until = NowMs() + kReleaseMaxMs;
+            ReplaceOlderReleases(v);
+        }
+        v.looping = false;
+        return 0;
+    }
+    if (v.playing && !v.paused && !v.sync) v.fading = true;
     v.playing = false;
+    v.release_until = 0;
     return 0;
 }
 BUFFER(Pause, 2) {
@@ -1477,7 +1613,9 @@ HLE_STDCALL(IDirectSound_CreateSoundStream, 4) { return NewStream(a[1], a[2]); }
 
 // the stream's callbacks still queued and those of its flushed packets, in order, go to the calling thread
 static void FlushStream(Voice& v) {
-    for (auto& pk : v.packets) Complete(v, pk, kFlushed);
+    for (auto& pk : v.packets) {
+        if (!pk.early) Complete(v, pk, kFlushed);
+    }
     v.packets.clear();
     v.pos = 0;
     for (auto it = g_done.begin(); it != g_done.end();) {
@@ -1502,6 +1640,7 @@ STREAM(SetFormat, 2) {
 STREAM(Release, 1) {
     if (--v.refs > 0) return uint32_t(v.refs);
     FlushStream(v);
+    if (v.shadow) mem::FreeContiguous(v.shadow);
     uint32_t obj = v.obj;
     g_voices.erase(obj);
     mem::FreeSystem(obj);
@@ -1528,7 +1667,9 @@ STREAM(GetInfo, 2) {
 // as stopped once the grace is over, so nothing waits on it for long.
 constexpr int64_t kStarvedGraceMs = 400;
 STREAM(GetStatus, 2) {
-    uint32_t status = v.packets.size() < v.max_packets ? 1u : 0u;
+    size_t held = 0;  // packets the title has not had back
+    for (const Packet& pk : v.packets) held += pk.early ? 0 : 1;
+    uint32_t status = held < v.max_packets ? 1u : 0u;
     bool fed = !v.packets.empty() || (v.dry && NowMs() - v.dry_at < kStarvedGraceMs);
     if (v.active && fed && !v.paused && !v.sync) status |= 0x10000u;
     W32(a[1], status);
@@ -1541,6 +1682,21 @@ STREAM(Process, 3) {
     if (pk.completed_ptr) W32(pk.completed_ptr, 0);
     if (pk.status_ptr) W32(pk.status_ptr, kPacketPending);
     v.packets.push_back(pk);
+    {
+        // [TCSOLA diag] XBE_PERF: how far ahead the title keeps each stream fed
+        static int lines = 0;
+        int64_t now = NowMs();
+        if (diag::Perf() && lines < 600) {
+            lines++;
+            uint32_t queued = 0;
+            for (const Packet& q : v.packets) queued += FramesOf(v, q.size);
+            double hz = double(v.freq ? v.freq : v.rate);
+            LOGR("dsound: stream %08X packet %.0f ms, %u queued (%.0f ms) of %u, %lld ms since its last",
+                 v.obj, FramesOf(v, pk.size) * 1000.0 / hz, uint32_t(v.packets.size()), queued * 1000.0 / hz,
+                 v.max_packets, v.last_process ? (long long)(now - v.last_process) : -1LL);
+        }
+        v.last_process = now;
+    }
     if (!v.active) v.has_gain = false;  // after going quiet a stream starts its levels fresh
     v.active = true;
     v.ending = false;

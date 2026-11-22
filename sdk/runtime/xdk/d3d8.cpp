@@ -1216,10 +1216,45 @@ HLE_STDCALL(D3DDevice_SetPixelShaderConstant, 3) {
 
 // drawing
 
+// [TCSOLA diag] model capture: each vertex layout and buffer drawn, once (up to 400), with where its data is and the
+// bytes of the first vertex of each stream, so a character model's packed format (Data\Char\*.XBX) can be matched
+// with what the game draws. The log line: prim, first vertex, count, the shader's inputs (register: stream + offset /
+// D3DVSDT type), then per stream: stride, data address, first vertex bytes.
+static void DiagDraw(uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) {
+    static std::unordered_set<uint64_t> seen;
+    static int logged = 0;
+    if (logged >= 400) return;
+    const auto& s0 = g_state.streams[0];
+    uint64_t key = (uint64_t(g_state.vs_handle) << 32) ^ uint64_t(s0.vb) ^ (uint64_t(s0.stride) << 56) ^ (uint64_t(prim) << 52);
+    if (!seen.insert(key).second) return;
+    logged++;
+    uint32_t first = start;
+    if (indices) first = reinterpret_cast<const uint16_t*>(indices)[0] + g_state.base_vertex;
+    char line[1600];
+    int n = std::snprintf(line, sizeof(line), "d3d: [TCSOLA model] prim %u first %u count %u%s vs %08X:", prim, first,
+                          count, indices ? " indexed" : "", g_state.vs_handle);
+    if (g_state.vs)
+        for (int r = 0; r < 16 && n < 900; r++) {
+            const auto& in = g_state.vs->inputs[r];
+            if (in.stream >= 0) n += std::snprintf(line + n, sizeof(line) - n, " v%d=s%d+%u/%02X", r, in.stream, in.offset, in.type);
+        }
+    for (int st = 0; st < 4 && n < 1400; st++) {
+        const auto& s = g_state.streams[st];
+        if (!s.vb || !s.stride) continue;
+        uint32_t data = mem::VirtualFromPhysical(R32(s.vb + 4));
+        n += std::snprintf(line + n, sizeof(line) - n, " | s%d stride %u at %08X:", st, s.stride, data);
+        uint32_t at = data + first * s.stride;
+        for (uint32_t i = 0; i < std::min(s.stride * 2, 48u) && n < 1580; i++)
+            n += std::snprintf(line + n, sizeof(line) - n, "%s%02x", i % 4 ? "" : " ", *static_cast<const uint8_t*>(HostPtr(at + i)));
+    }
+    LOGR("%s", line);
+}
+
 HLE_STDCALL(D3DDevice_DrawVertices, 3) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     Walk(Dev(kDevPush));  // a visibility test begun since the last draw counts this one
     SyncDeferred();
+    DiagDraw(a[0], a[1], a[2], nullptr);
     if (g_backend) g_backend->Draw(g_state, a[0], a[1], a[2], nullptr);
     return 0;
 }
@@ -1229,6 +1264,7 @@ HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     Walk(Dev(kDevPush));
     SyncDeferred();
     const uint8_t* indices = a[2] ? static_cast<const uint8_t*>(HostPtr(a[2])) : nullptr;
+    DiagDraw(a[0], 0, a[1], indices);
     if (g_backend) g_backend->Draw(g_state, a[0], 0, a[1], indices);
     return 0;
 }
