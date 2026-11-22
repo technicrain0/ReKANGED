@@ -3,8 +3,15 @@ setlocal
 set "GAME_TITLE=True Crime: Streets of LA"
 set "GAME_XBE=default.xbe"
 set "GAME_EXE=TrueCrimeLA"
-rem the European (PAL) default.xbe this port is made from
+rem the European (PAL) default.xbe this port is made from: the disc as dumped (Redump .iso, or its extracted files)
 set "GAME_SHA1=7c665c36d4883e087d949d0b6961dd6465484456"
+rem the same xbe as found in common xiso copies of that disc: one byte of the Xbox start-up code at 0x1EAFB9 differs
+rem (the jump past its start-up check), the game's own code is identical, and the port runs the same either way
+set "GAME_SHA1_XISO=5e0aeb15d63d2322209013df3b13b14545ac2d7b"
+rem the English-only European disc: its own build of the game (config\game_en.toml, picked by CMakeLists.txt),
+rem as dumped (Redump .iso) and as found in xiso copies (the same start-up byte differs)
+set "GAME_SHA1_EN=ca906ba5a9459da4309df1d185683f4293c9d2ed"
+set "GAME_SHA1_EN_XISO=19aa3175ed8b31454a1d40e3cae34f5fd92b5505"
 title %GAME_TITLE% - Build
 cd /d "%~dp0"
 echo.
@@ -126,9 +133,17 @@ exit /b 1
 set "SHA="
 for /f "usebackq delims=" %%h in (`powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA1 -LiteralPath 'assets\%GAME_XBE%').Hash.ToLower()"`) do set "SHA=%%h"
 if /i "%SHA%"=="%GAME_SHA1%" exit /b 0
+if /i "%SHA%"=="%GAME_SHA1_XISO%" echo       default.xbe is the European release, from an xiso copy.
+if /i "%SHA%"=="%GAME_SHA1_XISO%" exit /b 0
+if /i "%SHA%"=="%GAME_SHA1_EN%" echo       default.xbe is the English-only European release.
+if /i "%SHA%"=="%GAME_SHA1_EN%" exit /b 0
+if /i "%SHA%"=="%GAME_SHA1_EN_XISO%" echo       default.xbe is the English-only European release, from an xiso copy.
+if /i "%SHA%"=="%GAME_SHA1_EN_XISO%" exit /b 0
 echo   assets\%GAME_XBE% is not from the European (PAL) release this port is made for.
 echo     sha1 %SHA%
-echo     expected %GAME_SHA1%
+echo     expected one of the European releases:
+echo       five-language disc %GAME_SHA1% or %GAME_SHA1_XISO%
+echo       English-only disc  %GAME_SHA1_EN% or %GAME_SHA1_EN_XISO%
 echo   Put the European (PAL) .iso or its extracted files in the assets folder instead.
 exit /b 1
 

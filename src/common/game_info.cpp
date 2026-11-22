@@ -30,6 +30,13 @@ void TcPad(int port, input::Pad& p) {
 
 }  // namespace
 
+// [TCSOLA patch] the boss fight song caption (src/game/hooks.cpp)
+void TcWindow(void* hwnd);
+void TcUi(double fps);
+// [TCSOLA patch] the setup window: the game, PC content and Makoto (src/common/tc_setup.cpp)
+void TcSetup();
+extern bool g_tc_setup_done;
+
 // what the runtime asks of the game; strings must be set, hooks may stay null
 const app::GameInfo app::kGame = {
     .title = L"True Crime: Streets of LA",               // window and splash
@@ -40,14 +47,14 @@ const app::GameInfo app::kGame = {
     .splash = L"splash",                  // optional splash.png or splash.bmp beside the exe
     .missing = L"Put True Crime: Streets of LA (Xbox) in the assets folder: its disc image (.iso), or default.xbe with its folders beside it.",
     .images = {{"default.xbe", "TrueCrimeLA"}},  // each recompiled xbe and its exe, for title launches
-    .options = {},                        // game settings kept in the settings file
+    .options = {{"setup_done", &g_tc_setup_done, nullptr}},  // the setup window has been through once (it still opens at every start)
     .load = nullptr,                      // reads more from the settings file's toml::table
     .save = nullptr,                      // writes more into it
-    .init = nullptr,                      // after the settings load, before the window and boot
+    .init = TcSetup,                      // the setup window, at every start of the release (tc_setup.cpp)
     .loaded = nullptr,                    // image in memory, before its entry point runs
-    .window = nullptr,                    // the game window is up
+    .window = TcWindow,                   // the game window is up: the song caption's font
     .message = nullptr,                   // window messages first; true takes one
-    .ui = nullptr,                        // ImGui drawing each frame
+    .ui = TcUi,                           // ImGui drawing each frame: the song caption
     .pad = TcPad,                         // port 1 always connected, blips held 3 s (see TcPad)
     .rumble = nullptr,                    // changes a rumble before it is set
 };
