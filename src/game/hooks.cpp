@@ -3,7 +3,10 @@
 // To call the original body: X86_EXTERN_FUNC(__imp__sub_XXXXXXXX); then __imp__sub_XXXXXXXX(ctx, base);
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <random>
 #include <chrono>
 #include <cctype>
@@ -19,6 +22,7 @@
 #include <imgui.h>
 
 #include "app/app.h"
+#include "kernel/disc.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
 #include "xdk/hle.h"
@@ -84,8 +88,6 @@ X86_FUNC(TC_SEL(sub_001E7866, sub_001E76C6)) {
     if (ms >= 100 && (ret == TC_SEL(0x000D796Au, 0x000D79FAu) || ret == TC_SEL(0x001D17C0u, 0x001D1620u))) {
         TC_LOG_FIRST(20, "tc: wait loop at %08X slept %u ms, now 16 ms", ret, ms);
         ::kernel::W32(ctx.esp + 4, 16);
-    } else if (ms >= 100) {
-        TC_LOG_FIRST(20, "tc: Sleep(%u) from %08X", ms, ret);
     }
     TC_SEL(__imp__sub_001E7866, __imp__sub_001E76C6)(ctx, base);
 }
@@ -1114,18 +1116,9 @@ void WriteTrackStrings(uint32_t slots) {
 }
 }  // namespace
 
-namespace {
-// seconds since the first music event, so log lines can be matched to what was on screen
-double MusicClock() {
-    static const auto start = std::chrono::steady_clock::now();
-    return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-}
-}  // namespace
-
 X86_EXTERN_FUNC(TC_SEL(__imp__sub_0007FF10, __imp__sub_0007FF50));
 X86_FUNC(TC_SEL(sub_0007FF10, sub_0007FF50)) {
     LoadPcTracks();
-    uint32_t ret = ::kernel::R32(ctx.esp);
     uint32_t options = ::kernel::R32(kOptions);
     int32_t current = int32_t(::kernel::R32(ctx.esp + 4));
     uint8_t list = Byte(ctx.esp + 8);
@@ -1164,7 +1157,6 @@ X86_FUNC(TC_SEL(sub_0007FF10, sub_0007FF50)) {
             break;
         }
     }
-    TC_LOG_FIRST(300, "tc: [%7.1fs] song picked for list %u: %u (of %d), from %08X", MusicClock(), list, result, choices, ret);
     ::kernel::Return(ctx, result, 0);
 }
 
@@ -1222,19 +1214,13 @@ X86_FUNC(TC_SEL(sub_00156F90, sub_00156E70)) {
 
 
 // =============================================================================================
-// Music cues (diagnostic for BOSS TRACK)
-//
-// thiscall music.Cue(cue, fade): the game's music player (a global) starts the music for a cue.
-// Cue -1 is free roam; a mission's cue is its mission number, and a table of 123 cues gives each
-// its song (or -1 / -2 for a Fast Action / Slow Action pick, 0 for ambience). This logs every cue
-// with its caller, the mission running (options + 0x340) and the song the player ended up on, so
-// one run of TRIAD MUSCLE shows where the fist fight's music comes from.
-// =============================================================================================
-// =============================================================================================
 // Song caption: the PC version names a boss fight's song at the bottom of the screen, the artist over the title,
 // as the fight starts. The recompiled game has no such text, so it is drawn over the frame with the runtime's
-// ImGui (GameInfo::ui, game_info.cpp), in Arial Bold (loaded when the window is up, GameInfo::window), white with
-// a dark outline, about 5 seconds, fading in and out.
+// ImGui (GameInfo::ui, game_info.cpp), about 5 seconds, fading in and out. As on PC its letters are the game's own,
+// Font_UI_Large (Data\Textures), the font of the objective text ("FIGHT FENG"), in the menus' dim grey with no
+// outline but a soft shadow down and to the right, two lines one line height apart; the font is read from the player's disc or files when the window is up
+// (GameInfo::window) and put in ImGui's font atlas as glyphs of their own. Only if that file cannot be read is it
+// Arial Bold, white with a dark outline.
 // =============================================================================================
 namespace {
 std::mutex g_caption_lock;
@@ -1242,7 +1228,102 @@ std::string g_caption_artist, g_caption_title;
 std::chrono::steady_clock::time_point g_caption_start;
 bool g_caption_on = false;
 ImFont* g_caption_font = nullptr;
+bool g_caption_game_font = false;  // Font_UI_Large, not Arial
 constexpr float kCaptionFadeIn = 0.4f, kCaptionHold = 5.0f, kCaptionFadeOut = 1.0f;
+// as the PC version draws it: Font_UI_Large's 27 pixel line 1.63 times over at 1080 lines, the title's line from
+// 88.7% of the screen's height down, the artist's a line above; the dim grey of the menus' unselected entries
+// ("NEW GAME"), over a soft shadow
+constexpr float kCaptionLine = 27.0f * 1.63f / 1080.0f, kCaptionTitleY = 0.887f;
+constexpr int kCaptionGrey = 136;
+constexpr float kCaptionShadow = 0.07f, kCaptionShadowAlpha = 0.55f;  // its offset, of the line height, and darkness
+
+// Font_UI_Large.fnt: an Xbox texture header (20 bytes: common, data offset, lock, format, size), the glyph count and
+// first character, the line height, then 8 bytes a glyph (x, y, width, advance, left offset, unused) and at the data
+// offset the linear A4R4G4B4 sheet, white letters in its alpha. Its 221 glyphs run from the space as Latin-1 does.
+constexpr const char* kCaptionFontFile = "Data\\Textures\\Font_UI_Large.fnt";
+struct FontGlyph {
+    int rect;
+    uint16_t x, y;
+    uint8_t width;
+};
+
+bool ReadCaptionFont(std::vector<uint8_t>& out) {
+    if (const ::kernel::Disc* disc = ::kernel::MountedDisc()) return disc->Load(kCaptionFontFile, out);
+    // the game's files: assets beside the exe or in a folder above it (the build output), as the runtime looks
+    std::error_code ec;
+    auto dir = app::ExeDir();
+    for (int i = 0; i < 6; i++) {
+        auto path = dir / "assets" / "Data" / "Textures" / "Font_UI_Large.fnt";
+        if (std::filesystem::is_regular_file(path, ec)) {
+            std::ifstream f(path, std::ios::binary);
+            out.assign(std::istreambuf_iterator<char>(f), {});
+            return !out.empty();
+        }
+        if (!dir.has_parent_path() || dir.parent_path() == dir) break;
+        dir = dir.parent_path();
+    }
+    return false;
+}
+
+// the font with a glyph rectangle for each letter; their pixels go in once the atlas is built (AddCaptionPixels)
+ImFont* AddCaptionFont(ImGuiIO& io, std::vector<uint8_t>& file, std::vector<FontGlyph>& glyphs, int& line) {
+    if (!ReadCaptionFont(file) || file.size() < 0x18) return nullptr;
+    uint32_t data = 0, format = 0, size = 0;
+    std::memcpy(&data, &file[4], 4);
+    std::memcpy(&format, &file[12], 4);
+    std::memcpy(&size, &file[16], 4);
+    uint32_t w = (size & 0xFFF) + 1, h = ((size >> 12) & 0xFFF) + 1, pitch = ((size >> 24) + 1) * 64;
+    uint32_t count = file[0x14], first = file[0x15];
+    line = file[0x16];
+    if (((format >> 8) & 0xFF) != 0x1D || pitch < w * 2 || line == 0 || 0x18 + 8 * count > data ||
+        size_t(data) + size_t(pitch) * h > file.size())
+        return nullptr;
+    ImFontConfig config;
+    config.SizePixels = float(line);
+    static const ImWchar kNone[] = {0x2122, 0x2122, 0};  // none of ImGui's own letters, only the game's
+    config.GlyphRanges = kNone;
+    std::snprintf(config.Name, sizeof(config.Name), "Font_UI_Large");
+    ImFont* font = io.Fonts->AddFontDefault(&config);
+    for (uint32_t i = 0; i < count && first + i <= 0xFF; i++) {
+        const uint8_t* g = &file[0x18 + 8 * i];
+        uint16_t x = uint16_t(g[0] | g[1] << 8), y = uint16_t(g[2] | g[3] << 8);
+        uint8_t width = g[4], advance = g[5];
+        if (x + uint32_t(width) > w || y + uint32_t(line) > h) width = 0;  // a space, or out of the sheet
+        // a clear pixel around each letter, so a scaled letter does not pick up the edge of its neighbour in the atlas
+        int rect = io.Fonts->AddCustomRectFontGlyph(font, ImWchar(first + i), width + 2, line + 2, float(advance),
+                                                    ImVec2(float(int8_t(g[6])) - 1.0f, -1.0f));
+        glyphs.push_back({rect, x, y, width});
+    }
+    return font;
+}
+
+// the letters' pixels into the built atlas, white with the sheet's alpha (before the renderer takes the atlas)
+void AddCaptionPixels(ImGuiIO& io, const std::vector<uint8_t>& file, const std::vector<FontGlyph>& glyphs, int line) {
+    uint32_t data = 0, size = 0;
+    std::memcpy(&data, &file[4], 4);
+    std::memcpy(&size, &file[16], 4);
+    uint32_t pitch = ((size >> 24) + 1) * 64;
+    io.Fonts->Build();
+    unsigned char* pixels = nullptr;
+    int tw = 0, th = 0;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &tw, &th);
+    if (!pixels) return;
+    for (const FontGlyph& g : glyphs) {
+        const ImFontAtlasCustomRect* r = io.Fonts->GetCustomRectByIndex(g.rect);
+        if (!r || !r->IsPacked()) continue;
+        for (int y = 0; y < r->Height && r->Y + y < th; y++)
+            for (int x = 0; x < r->Width && r->X + x < tw; x++) {
+                uint8_t alpha = 0;
+                if (x >= 1 && x <= g.width && y >= 1 && y <= line) {
+                    size_t at = size_t(data) + size_t(g.y + y - 1) * pitch + size_t(g.x + x - 1) * 2;
+                    alpha = uint8_t((file[at + 1] >> 4) * 17);
+                }
+                unsigned char* p = pixels + (size_t(r->Y + y) * size_t(tw) + size_t(r->X + x)) * 4;
+                p[0] = p[1] = p[2] = 255;
+                p[3] = alpha;
+            }
+    }
+}
 
 float FadeAlpha(float t, float in, float hold, float out) {
     if (t < in) return t / in;
@@ -1250,22 +1331,26 @@ float FadeAlpha(float t, float in, float hold, float out) {
     return std::max(0.0f, 1.0f - (t - in - hold) / out);
 }
 
-// one line centred across the screen, with a dark outline
+// one line centred across the screen: the game's font with a faint shadow, Arial with a dark outline
 void CenteredText(ImDrawList* draw, ImFont* font, float size, float y, ImU32 color, float alpha, const std::string& text) {
     if (text.empty()) return;
     float w = ImGui::GetIO().DisplaySize.x;
     ImVec2 ext = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str());
     float x = std::floor((w - ext.x) / 2);
-    float outline = std::max(1.0f, size / 18.0f);
-    ImU32 dark = IM_COL32(0, 0, 0, int(200 * alpha));
-    for (int dx = -1; dx <= 1; dx++)
-        for (int dy = -1; dy <= 1; dy++)
-            if (dx || dy) draw->AddText(font, size, ImVec2(x + dx * outline, y + dy * outline), dark, text.c_str());
+    y = std::floor(y);
+    if (g_caption_game_font) {
+        float d = std::max(1.0f, std::round(size * kCaptionShadow));
+        draw->AddText(font, size, ImVec2(x + d, y + d), IM_COL32(0, 0, 0, int(255 * kCaptionShadowAlpha * alpha)), text.c_str());
+    } else {
+        float outline = std::max(1.0f, size / 18.0f);
+        ImU32 dark = IM_COL32(0, 0, 0, int(200 * alpha));
+        for (int dx = -1; dx <= 1; dx++)
+            for (int dy = -1; dy <= 1; dy++)
+                if (dx || dy) draw->AddText(font, size, ImVec2(x + dx * outline, y + dy * outline), dark, text.c_str());
+    }
     draw->AddText(font, size, ImVec2(x, y), color, text.c_str());
 }
 }  // namespace
-
-
 
 void TcShowSongCaption(const std::string& artist, const std::string& title) {
     std::lock_guard lock(g_caption_lock);
@@ -1281,21 +1366,35 @@ void TcWindow(void*) {
     std::lock_guard ui(app::UiLock());
     ImGuiIO& io = ImGui::GetIO();
     if (io.Fonts->Fonts.empty()) io.Fonts->AddFontDefault();
-    const char* paths[] = {"C:\\Windows\\Fonts\\arialbd.ttf", "C:\\Windows\\Fonts\\arial.ttf"};
-    for (const char* path : paths) {
-        std::error_code ec;
-        if (!std::filesystem::is_regular_file(path, ec)) continue;
-        ImFontConfig config;
-        config.OversampleH = 2;
-        config.OversampleV = 2;
-        g_caption_font = io.Fonts->AddFontFromFileTTF(path, 64.0f, &config);
-        if (g_caption_font) break;
+    std::vector<uint8_t> file;
+    std::vector<FontGlyph> glyphs;
+    int line = 0;
+    g_caption_font = AddCaptionFont(io, file, glyphs, line);
+    if (g_caption_font) {
+        AddCaptionPixels(io, file, glyphs, line);
+        g_caption_game_font = true;
+    } else {
+        const char* paths[] = {"C:\\Windows\\Fonts\\arialbd.ttf", "C:\\Windows\\Fonts\\arial.ttf"};
+        for (const char* path : paths) {
+            std::error_code ec;
+            if (!std::filesystem::is_regular_file(path, ec)) continue;
+            ImFontConfig config;
+            config.OversampleH = 2;
+            config.OversampleV = 2;
+            g_caption_font = io.Fonts->AddFontFromFileTTF(path, 64.0f, &config);
+            if (g_caption_font) break;
+        }
     }
-    LOGR("tc: song caption font %s", g_caption_font ? "loaded" : "missing, ImGui's own is used");
+    LOGR("tc: song caption font: %s", g_caption_game_font ? "the game's Font_UI_Large"
+                                      : g_caption_font   ? "Font_UI_Large not read, Arial Bold"
+                                                         : "missing, ImGui's own is used");
 }
 
-// each frame, inside the ImGui frame: the song caption
+void TcBlinkTick();  // Makoto's blink, below
+
+// each frame, inside the ImGui frame: the song caption (and Makoto's blink)
 void TcUi(double) {
+    TcBlinkTick();
     std::string artist, title;
     float caption = 0;
     {
@@ -1315,19 +1414,27 @@ void TcUi(double) {
     float h = io.DisplaySize.y;
     if (h <= 0 || io.DisplaySize.x <= 0) return;
     ImDrawList* draw = ImGui::GetForegroundDrawList();
-    if (caption > 0) {
-        float size = h * 0.036f, gap = size * 1.15f, bottom_y = h * 0.93f;
-        ImU32 white = IM_COL32(255, 255, 255, int(255 * caption));
-        if (!artist.empty()) {
-            CenteredText(draw, font, size, bottom_y - 2 * gap, white, caption, artist);
-            CenteredText(draw, font, size, bottom_y - gap, white, caption, title);
-        } else {
-            CenteredText(draw, font, size, bottom_y - gap, white, caption, title);
-        }
+    float size = 0, gap = 0, title_y = 0;
+    ImU32 color = 0;
+    if (g_caption_game_font) {
+        size = h * kCaptionLine, gap = size, title_y = h * kCaptionTitleY;
+        color = IM_COL32(kCaptionGrey, kCaptionGrey, kCaptionGrey, int(255 * caption));
+    } else {
+        size = h * 0.036f, gap = size * 1.15f, title_y = h * 0.93f - gap;
+        color = IM_COL32(255, 255, 255, int(255 * caption));
     }
+    CenteredText(draw, font, size, title_y - gap, color, caption, artist);  // none when there is no artist
+    CenteredText(draw, font, size, title_y, color, caption, title);
 }
 
+// =============================================================================================
+// Music cues: thiscall music.Cue(cue, fade), the game's music player (a global) starting the music for a cue.
+// Cue -1 is free roam; a mission's cue is its mission number, and a table of 123 cues gives each its song (or
+// -1 / -2 for a Fast Action / Slow Action pick, 0 for ambience). A boss's cue gets the player's BOSS TRACK song
+// and its caption (above); each cue also looks for Makoto's face sheet again (his blink).
+// =============================================================================================
 bool TcMissionSolved(int32_t mission);  // BOSS TRACK, below
+void TcBlinkFind();                     // Makoto's blink, below
 
 namespace {
 constexpr uint32_t kCueTable = TC_SEL(0x00276EC0u, 0x00276C00u), kCueCount = 123;  // {int16 cue, int16 song}
@@ -1388,13 +1495,9 @@ uint32_t BossSongFor(int32_t cue) {
 X86_EXTERN_FUNC(TC_SEL(__imp__sub_00080E20, __imp__sub_00080E60));
 X86_FUNC(TC_SEL(sub_00080E20, sub_00080E60)) {
     uint32_t music = ctx.ecx;
-    uint32_t ret = ::kernel::R32(ctx.esp);
     int32_t cue = int32_t(::kernel::R32(ctx.esp + 4));
-    uint32_t fade_bits = ::kernel::R32(ctx.esp + 8);
-    float fade;
-    std::memcpy(&fade, &fade_bits, 4);
     uint32_t options = ::kernel::R32(kOptions);
-    int32_t mission = options ? int32_t(::kernel::R32(options + 0x340)) : -99;
+    TcBlinkFind();
     uint32_t entry = 0, forced = BossSongFor(cue);
     int16_t old_song = 0;
     uint8_t old_switch = 0;
@@ -1415,7 +1518,6 @@ X86_FUNC(TC_SEL(sub_00080E20, sub_00080E60)) {
              int32_t(old_song));
     }
     uint32_t source = ::kernel::R32(music + 0x124);
-    uint32_t kind = source ? ::kernel::R32(source) : 0;
     uint32_t song = source ? ::kernel::R32(source + 8) : 0;
     // a boss fight's song, the player's or the game's, named at the bottom of the screen as the PC version does
     if (BossForCue(cue) && song >= 1 && song <= kMaxSong) {
@@ -1429,8 +1531,6 @@ X86_FUNC(TC_SEL(sub_00080E20, sub_00080E60)) {
             TcShowSongCaption(artist, title);
         }
     }
-    TC_LOG_FIRST(300, "tc: [%7.1fs] MUSIC CUE %d (fade %.2f) from %08X, mission %d -> source %08X kind %08X song %d",
-                 MusicClock(), cue, fade, ret, mission, source, kind, int32_t(song));
 }
 
 // =============================================================================================
@@ -1902,4 +2002,260 @@ X86_FUNC(TC_SEL(sub_000A9F10, sub_000A9F50)) {
     }
     TC_SEL(__imp__sub_000A9F10, __imp__sub_000A9F50)(ctx, base);
     if (slot) ::kernel::W32(slot, saved);
+    TcBlinkFind();
+}
+
+// =============================================================================================
+// Makoto blinks (and his mouth moves, below): the M3M3NT0 skin only
+//
+// P3 blinks him by stepping his eye texture (c_hero_t05: open, closed, wide, narrowed, one above the other). The
+// setup window's converter puts that texture at the top left of his 512x512 DXT1 sheet (texture 2 of
+// M3M3NT0.XBX): open eyes at y 0..63, closed ones under them at y 64..127, x 0..127, and "TCFACE" and its version in the
+// sheet's last level 0 block, which no triangle reaches. A blink copies the closed frame's DXT1 blocks over the
+// open ones, in every level, in each copy of the sheet the game holds, and puts the open ones back about a tenth of
+// a second later; gpu::MarkDirty has the renderer take the sheet again. When: at random, 1.8 to 5.5 seconds apart,
+// now and then twice in a row, on its own clock, so it does not follow the game's scenes. The copies are looked
+// for when a character loads and at each mission's music cue, only while the skin is M3M3NT0 (no other file
+// holds his sheet), and each is checked before every write (a part of the sheet the blink leaves alone); a copy
+// that is gone is dropped. Without the marker (a M3M3NT0.XBX from before) nothing happens.
+// =============================================================================================
+namespace gpu {
+void MarkDirty(uint32_t resource);  // gpu/texture.h: the next bind uploads the texture again
+}
+namespace d3d {
+extern void (*g_tc_draw_peek)(uint32_t texture, const std::array<float, 4>* vsc);  // xdk/d3d8.cpp
+}
+
+namespace {
+constexpr uint32_t kMakotoSkin = 21;  // M3M3NT0, g_extra_skins
+constexpr uint32_t kBlinkSheet = 512, kBlinkSlot = 2, kBlinkW = 128, kBlinkH = 64;
+constexpr uint32_t kSheetRow = kBlinkSheet / 4 * 8;           // a level 0 block row, in bytes
+constexpr uint32_t kSigAt = kBlinkW / 4 * 8, kSigBytes = kSheetRow - kSigAt;  // row 0 right of his eyes
+constexpr uint32_t kLastRow = (kBlinkSheet / 4 - 1) * kSheetRow;           // row 127, with the marker
+
+struct Blink {
+    std::mutex lock;
+    bool read = false;
+    std::vector<uint8_t> sheet;  // all its levels as M3M3NT0.XBX has them
+    std::vector<uint32_t> copies, headers;
+    std::vector<uint32_t> pool;  // every header made so far, used again on the next load instead of new ones
+    bool closed = false, twice = false;
+    std::chrono::steady_clock::time_point next{}, reopen{};
+    // his mouth: the frame each copy shows, and the jaw's reach as seen so far (the scale it is measured on)
+    std::vector<int> mouth;
+    double jaw_lo = 1e9, jaw_hi = 0;
+    std::chrono::steady_clock::time_point mouth_at{}, seen{};
+    std::mt19937 rng{std::random_device{}()};
+} g_blink;
+
+bool ReadBlinkSheet() {
+    if (g_blink.read) return !g_blink.sheet.empty();
+    g_blink.read = true;
+    std::vector<uint8_t> x;
+    if (!::kernel::ReadGameFile("D:\\Data\\Char\\M3M3NT0.XBX", x) || x.size() < 0x50) return false;
+    uint32_t off = 0, count = 0;
+    for (int i = 0; i < 8; i++) {
+        uint16_t type = 0, n = 0;
+        std::memcpy(&type, &x[0x0C + 8 * i], 2);
+        std::memcpy(&n, &x[0x0E + 8 * i], 2);
+        if (type == 2) std::memcpy(&off, &x[0x10 + 8 * i], 4), count = n;
+    }
+    if (count <= kBlinkSlot || size_t(off) + 20 * (kBlinkSlot + 1) > x.size()) return false;
+    uint32_t data = 0, fmt = 0;
+    std::memcpy(&data, &x[off + 20 * kBlinkSlot + 4], 4);
+    std::memcpy(&fmt, &x[off + 20 * kBlinkSlot + 12], 4);
+    uint32_t levels = (fmt >> 16) & 15;
+    if (((fmt >> 8) & 0xFF) != 0x0C || ((fmt >> 20) & 15) != 9 || ((fmt >> 24) & 15) != 9 || levels < 1) return false;
+    size_t total = 0;
+    for (uint32_t l = 0, w = kBlinkSheet; l < levels; l++, w = std::max(1u, w / 2)) total += size_t(std::max(1u, w / 4)) * std::max(1u, w / 4) * 8;
+    size_t at = size_t(off) + data;
+    if (at + total > x.size() || std::memcmp(&x[at + kLastRow + kSheetRow - 8], "TCFACE", 6) != 0) {  // any version
+        LOGR("tc: blink: M3M3NT0.XBX was made before the blink (make Makoto again in the setup window)");
+        return false;
+    }
+    g_blink.sheet.assign(x.begin() + long(at), x.begin() + long(at + total));
+    return true;
+}
+
+bool BlinkSheetAt(uint32_t va) {
+    const size_t n = g_blink.sheet.size();
+    if (va < kSigAt || !mem::IsCommitted(va) || !mem::IsCommitted(uint32_t(va + n - 1))) return false;
+    const uint8_t* p = static_cast<const uint8_t*>(::kernel::HostPtr(va));
+    return std::memcmp(p + kSigAt, &g_blink.sheet[kSigAt], kSigBytes) == 0 &&
+           std::memcmp(p + kLastRow, &g_blink.sheet[kLastRow], kSheetRow) == 0;
+}
+
+std::vector<uint32_t> FindBlinkSheets() {
+    std::vector<uint32_t> found;
+    const uint64_t lo = mem::kUserLow, hi = mem::kWriteCombineBase;
+    for (uint64_t page = lo; page < hi; page += mem::kPage) {
+        if (page >= mem::kKernelDataBase && page < uint64_t(mem::kKernelDataBase) + mem::kKernelDataSize) continue;
+        if (!mem::IsCommitted(uint32_t(page))) continue;
+        const uint8_t* p = static_cast<const uint8_t*>(::kernel::HostPtr(uint32_t(page)));
+        for (uint32_t o = 0; o < mem::kPage; o += 16) {
+            uint32_t va = uint32_t(page + o);
+            if (std::memcmp(p + o, &g_blink.sheet[kSigAt], 16) == 0 && BlinkSheetAt(va - kSigAt)) found.push_back(va - kSigAt);
+        }
+    }
+    return found;
+}
+
+// the eyes, open or closed, in one copy: each level's open rows from the file, or the closed rows under them
+void WriteEyes(uint32_t va, bool closed) {
+    uint8_t* dst = static_cast<uint8_t*>(::kernel::HostPtr(va));
+    size_t level = 0;
+    for (uint32_t w = kBlinkSheet; w >= 4; w /= 2) {
+        uint32_t row = w / 4 * 8, rows = (kBlinkH * w / kBlinkSheet) / 4, cols = (kBlinkW * w / kBlinkSheet) / 4;
+        if (rows == 0 || cols == 0 || level + size_t(row) * (w / 4) > g_blink.sheet.size()) break;
+        for (uint32_t r = 0; r < rows; r++)
+            std::memcpy(dst + level + size_t(r) * row, &g_blink.sheet[level + size_t(closed ? r + rows : r) * row], size_t(cols) * 8);
+        level += size_t(row) * (w / 4);
+    }
+}
+
+// his mouth showing frame f (0 neutral, 1 open (not used), 2 half open) in one copy: its rows from the file, in every level
+constexpr uint32_t kMouthX = 128, kMouthY = 256, kMouthW = 64, kMouthH = 32;
+void WriteMouth(uint32_t va, int f) {
+    uint8_t* dst = static_cast<uint8_t*>(::kernel::HostPtr(va));
+    size_t level = 0;
+    for (uint32_t w = kBlinkSheet; w >= 4; w /= 2) {
+        uint32_t row = w / 4 * 8, rows = (kMouthH * w / kBlinkSheet) / 4, cols = (kMouthW * w / kBlinkSheet) / 4;
+        uint32_t bx = (kMouthX * w / kBlinkSheet) / 4, by = (kMouthY * w / kBlinkSheet) / 4;
+        if (rows == 0 || cols == 0 || level + size_t(row) * (w / 4) > g_blink.sheet.size()) break;
+        for (uint32_t r = 0; r < rows; r++)
+            std::memcpy(dst + level + size_t(by + r) * row + bx * 8,
+                        &g_blink.sheet[level + size_t(by + uint32_t(f) * rows + r) * row + bx * 8], size_t(cols) * 8);
+        level += size_t(row) * (w / 4);
+    }
+}
+
+double BlinkRandom(double lo, double hi) { return std::uniform_real_distribution<double>(lo, hi)(g_blink.rng); }
+}  // namespace
+
+// Makoto's mouth: P3 moves it with his mouth texture (c_hero_t06), True Crime moves Nick's with face bones that his
+// model has no mesh on. Before each draw of his sheet the jaw bone's matrix (Nick's bone 14, palette slot 11,
+// constants 33..35) is set against the head's (bone 9, slot 6, constants 18..20): a point on Nick's chin moved by
+// each, apart by how far the jaw has dropped, taken over the head's height so the units and the camera do not
+// matter. That is set on the range the jaw has been seen to move (its low and high, the high easing back over a
+// few seconds) and picks his neutral or half open mouth (his open one, wide, looks like shouting, so it is not
+// used), held 60 ms at least so it does not flicker. A jaw
+// that never moves leaves the neutral mouth; another character's draw is not his sheet and is left alone.
+// (a matrix row holds x, y, z and the move: a point p goes to (row0 . p + row0.w, row1 . p + row1.w, ...))
+namespace {
+constexpr uint32_t kHeadSlot = 6, kJawSlot = 11;
+constexpr float kChin[3] = {0.036f, -0.203f, 0.001f}, kCrown[3] = {0.026f, -0.262f, 0.0f};  // on Nick, his body's space
+std::array<double, 3> Moved(const std::array<float, 4>* vsc, uint32_t slot, const float* p) {
+    std::array<double, 3> o{};
+    for (int i = 0; i < 3; i++) {
+        const auto& r = vsc[3 * slot + uint32_t(i)];
+        o[size_t(i)] = double(r[0]) * p[0] + double(r[1]) * p[1] + double(r[2]) * p[2] + r[3];
+    }
+    return o;
+}
+double Apart(const std::array<double, 3>& a, const std::array<double, 3>& b) {
+    return std::sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
+}
+}  // namespace
+
+void TcMouthPeek(uint32_t texture, const std::array<float, 4>* vsc) {
+    if (!texture || !vsc) return;
+    std::unique_lock lock(g_blink.lock, std::try_to_lock);
+    if (!lock.owns_lock() || g_blink.copies.empty()) return;
+    uint32_t data = mem::VirtualFromPhysical(::kernel::R32(texture + 4));
+    size_t c = 0;
+    while (c < g_blink.copies.size() && g_blink.copies[c] != data) c++;
+    if (c == g_blink.copies.size() || c >= g_blink.mouth.size()) return;
+    double height = Apart(Moved(vsc, kHeadSlot, kChin), Moved(vsc, kHeadSlot, kCrown));
+    if (!(height > 1e-6) || !std::isfinite(height)) return;
+    double jaw = Apart(Moved(vsc, kJawSlot, kChin), Moved(vsc, kHeadSlot, kChin)) / height;
+    if (!std::isfinite(jaw)) return;
+    auto now = std::chrono::steady_clock::now();
+    double dt = std::min(0.5, std::chrono::duration<double>(now - g_blink.seen).count());
+    g_blink.seen = now;
+    g_blink.jaw_lo = std::min(g_blink.jaw_lo, jaw);
+    g_blink.jaw_hi = std::max(jaw, g_blink.jaw_hi - (g_blink.jaw_hi - g_blink.jaw_lo) * 0.25 * dt);
+    double range = std::max(g_blink.jaw_hi - g_blink.jaw_lo, 0.012), v = (jaw - g_blink.jaw_lo) / range;
+    int f = v < 0.3 ? 0 : 2;  // never his open mouth (frame 1): wide open he looks like he is shouting
+    if (f == g_blink.mouth[c] || now - g_blink.mouth_at < std::chrono::milliseconds(60)) return;
+    if (!BlinkSheetAt(g_blink.copies[c])) return;
+    WriteMouth(g_blink.copies[c], f);
+    gpu::MarkDirty(g_blink.headers[c]);
+    g_blink.mouth[c] = f;
+    g_blink.mouth_at = now;
+    TC_LOG_FIRST(3, "tc: mouth: jaw %.3f of the head (seen %.3f..%.3f), frame %d", jaw, g_blink.jaw_lo, g_blink.jaw_hi, f);
+}
+
+// a character loaded or a mission began: his sheet looked for again (the game thread)
+void TcBlinkFind() {
+    uint32_t options = ::kernel::R32(kOptions);
+    bool makoto = options && ::kernel::R32(options + kOptionsSkin) == kMakotoSkin;
+    std::lock_guard lock(g_blink.lock);
+    if (!makoto) {
+        g_blink.copies.clear();
+        d3d::g_tc_draw_peek = nullptr;  // another skin: no look at each draw
+        return;
+    }
+    if (!ReadBlinkSheet()) {
+        d3d::g_tc_draw_peek = nullptr;
+        return;
+    }
+    // looked for each time (a cutscene may load him once more), his eyes opened first in the copies known
+    for (size_t c = 0; c < g_blink.copies.size(); c++)
+        if (BlinkSheetAt(g_blink.copies[c])) {
+            if (g_blink.closed) WriteEyes(g_blink.copies[c], false);
+            if (c < g_blink.mouth.size() && g_blink.mouth[c]) WriteMouth(g_blink.copies[c], 0);
+            gpu::MarkDirty(g_blink.headers[c]);
+        }
+    g_blink.copies = FindBlinkSheets();
+    g_blink.headers.clear();
+    for (uint32_t va : g_blink.copies) {
+        if (g_blink.headers.size() == g_blink.pool.size()) {
+            uint32_t h = mem::AllocSystem(20);
+            if (!h) break;
+            g_blink.pool.push_back(h);
+        }
+        uint32_t h = g_blink.pool[g_blink.headers.size()];
+        std::memset(::kernel::HostPtr(h), 0, 20);
+        ::kernel::W32(h + 4, mem::PhysicalFromVirtual(va));
+        g_blink.headers.push_back(h);
+    }
+    g_blink.copies.resize(g_blink.headers.size());
+    g_blink.mouth.assign(g_blink.copies.size(), 0);
+    g_blink.closed = false;
+    d3d::g_tc_draw_peek = g_blink.copies.empty() ? nullptr : TcMouthPeek;
+    g_blink.next = std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                                          std::chrono::duration<double>(BlinkRandom(1.0, 3.0)));
+    LOGR("tc: blink: Makoto's sheet in %zu place(s)", g_blink.copies.size());
+}
+
+// each frame (the UI thread): his eyes shut or open again when their time comes
+void TcBlinkTick() {
+    std::unique_lock lock(g_blink.lock, std::try_to_lock);
+    if (!lock.owns_lock() || g_blink.copies.empty()) return;
+    auto now = std::chrono::steady_clock::now();
+    auto after = [](double s) {
+        return std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(s));
+    };
+    bool shut = !g_blink.closed && now >= g_blink.next, open = g_blink.closed && now >= g_blink.reopen;
+    if (!shut && !open) return;
+    for (size_t c = 0; c < g_blink.copies.size();) {
+        if (!BlinkSheetAt(g_blink.copies[c])) {  // the game let it go (its header stays in the pool)
+            g_blink.copies.erase(g_blink.copies.begin() + long(c));
+            g_blink.headers.erase(g_blink.headers.begin() + long(c));
+            if (c < g_blink.mouth.size()) g_blink.mouth.erase(g_blink.mouth.begin() + long(c));
+            continue;
+        }
+        WriteEyes(g_blink.copies[c], shut);
+        gpu::MarkDirty(g_blink.headers[c]);
+        c++;
+    }
+    if (shut) {
+        g_blink.closed = true;
+        g_blink.reopen = now + after(BlinkRandom(0.09, 0.15));
+    } else {
+        g_blink.closed = false;
+        bool twice = !g_blink.twice && BlinkRandom(0, 1) < 0.15;  // now and then a second one straight after
+        g_blink.twice = twice;
+        g_blink.next = now + after(twice ? BlinkRandom(0.15, 0.25) : BlinkRandom(1.8, 5.5));
+    }
 }

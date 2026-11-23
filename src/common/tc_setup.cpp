@@ -140,11 +140,14 @@ Found Detect() {
     // already made: Makoto's file; the 9 PC skins, the PC song list and every song on it
     fs::path chars = a / "extras" / "Data" / "Char";
     auto there = [&](const fs::path& p) { return fs::is_regular_file(p, ec) && fs::file_size(p, ec) > 0; };
-    // his model with his own HUD portrait (one made before the portrait came still has Nick's: made again)
+    // his model with his own HUD portrait and his blink (one made before either came is made again)
     f.makoto_ready = there(chars / "M3M3NT0.XBX");
     if (f.makoto_ready) {
         try {
-            f.makoto_ready = p3makoto::PortraitHash(p3makoto::ReadFile(chars / "M3M3NT0.XBX")) != p3makoto::kNickPortrait;
+            auto xbx = p3makoto::ReadFile(chars / "M3M3NT0.XBX");
+            f.makoto_ready = p3makoto::PortraitHash(xbx) != p3makoto::kNickPortrait && p3makoto::HasBlink(xbx);
+            // made by an older converter (before his shirt fix): made again while the disc is there, kept if not
+            if (f.makoto_ready && f.p3 && p3makoto::MakotoVersion(xbx) < p3makoto::kMakotoVersion) f.makoto_ready = false;
         } catch (const std::exception&) {
             f.makoto_ready = false;
         }

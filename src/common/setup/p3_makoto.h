@@ -494,6 +494,19 @@ int Bone(const char* name) {
     Fail(std::string("no bone ") + name);
 }
 constexpr int kBodyNode = 2, kBodyBone = 3, kTexSlot = 2, kAtlas = 512;
+// his eyes (c_hero_t05: open, closed, wide, narrowed, one above the other, P3 steps through them to blink), at the
+// sheet's top left; the marker, in the sheet's last level 0 block (no triangle reaches it), says that his eyes and
+// mouth are where the port's blink and mouth expect them
+constexpr const char* kEyeSheet = "c_hero_t05";
+constexpr int kBlinkW = 128, kBlinkH = 64;
+// his mouth (c_hero_t06: neutral, open, half open, closed), where the packing puts it: x 128, y 256, 64 x 128
+// (frames of 32 rows); the port shows the open ones as Nick's jaw bone moves
+constexpr const char* kMouthSheet = "c_hero_t06";
+constexpr int kMouthX = 128, kMouthY = 256, kMouthW = 64, kMouthH = 32;
+// "TCFACE" and its version: 01 the blink and mouth, 02 his shirt tucked under his jacket (TuckShirt), 03 his
+// trousers too
+constexpr char kBlinkMark[9] = "TCFACE03";
+constexpr int kMakotoVersion = 3;
 bool InPalette(int b) { return b >= 4 && b < 64 && b != 41 && b != 55; }
 int PaletteIndex(int b) {
     int k = 0;
@@ -746,6 +759,118 @@ std::vector<int> Stripify(const std::vector<std::array<int, 3>>& tris) {
     return S;
 }
 
+// His shirt under his jacket. The shirt (a c_hero_t03 material of his body on his spine, neck and collarbones alone) and
+// the jacket over it (the body's other c_hero_t03 materials) are weighted apart in P3, the jacket also on his
+// lapel and coat tail bones, which Nick has not got: those go on Nick's spine bones above the shirt's, so on Nick the
+// two layers bent apart and the shirt showed through the jacket's back as he ran. The shirt's triangles the jacket
+// covers (a ray out from each of four points on one meets the jacket within kCover) are taken out, never to be
+// seen anyway, and the rest (his collar and the shirt in the jacket's opening) take the weights of the jacket's
+// nearest vertices, so they move with it. So does the jacket's lining: the navy inside of the jacket (in the
+// trousers' texture, fc_hero_t02, facing in, seen through the jacket's opening), up from kWaist over his hip
+// joint, which P3 has on his hip and thigh bones and which showed through the jacket's back as his legs swung.
+// The trousers from the waist down keep their own weights.
+constexpr double kCover = 12.0;  // P3 units: Makoto is about 170 tall
+constexpr double kWaist = 2.0;
+
+bool RayHits(V3 o, V3 d, V3 a, V3 b, V3 c, double reach) {
+    V3 e1 = b - a, e2 = c - a, p = Cross(d, e2);
+    double det = Dot(e1, p);
+    if (std::fabs(det) < 1e-12) return false;
+    V3 s = o - a;
+    double u = Dot(s, p) / det;
+    if (u < 0 || u > 1) return false;
+    V3 q = Cross(s, e1);
+    double v = Dot(d, q) / det, t = Dot(e2, q) / det;
+    return v >= 0 && u + v <= 1 && t > 1e-4 && t < reach;
+}
+
+// the triangles kept (all, but the shirt's covered ones); the shirt's vertices left and the lining's get the
+// jacket's weights. `place` puts the geometry in the bind pose, `hips` is the hip joint's height
+std::vector<bool> TuckShirt(Geometry& g, const Xf& place, double hips) {
+    std::vector<bool> keep(g.tri.size(), true);
+    if (!g.skin) return keep;
+    auto spine = [](int k) { return (k >= 14 && k <= 18) || k == 33 || k == 51; };  // and a little on his collarbones
+    int shirt = -1;
+    for (int m = 0; m < int(g.mats.size()) && shirt < 0; m++) {
+        if (g.mats[m] != "c_hero_t03") continue;
+        bool only = true, any = false;
+        for (size_t t = 0; t < g.tri.size() && only; t++)
+            if (g.mat[t] == m)
+                for (int c = 0; c < 3; c++) {
+                    int v = g.tri[t][c];
+                    for (int j = 0; j < 4; j++)
+                        if (g.bw[v][j] > 0) only &= spine(g.bi[v][j]), any = true;
+                }
+        if (only && any) shirt = m;
+    }
+    if (shirt < 0) return keep;
+    auto jacket = [&](size_t t) { return g.mat[t] != shirt && g.mats[g.mat[t]] == "c_hero_t03"; };
+    std::vector<bool> on_jacket(size_t(g.nv));
+    for (size_t t = 0; t < g.tri.size(); t++)
+        if (jacket(t))
+            for (int c = 0; c < 3; c++) on_jacket[size_t(g.tri[t][c])] = true;
+    for (size_t t = 0; t < g.tri.size(); t++) {
+        if (g.mat[t] != shirt) continue;
+        V3 a = g.pos[size_t(g.tri[t][0])], b = g.pos[size_t(g.tri[t][1])], c = g.pos[size_t(g.tri[t][2])];
+        V3 n = Cross(b - a, c - a);
+        V3 vn = g.nrm[size_t(g.tri[t][0])] + g.nrm[size_t(g.tri[t][1])] + g.nrm[size_t(g.tri[t][2])];
+        if (Len(n) < 1e-12) continue;
+        n = n * ((Dot(n, vn) < 0 ? -1 : 1) / Len(n));  // outward, as its normals face
+        bool covered = true;
+        for (auto w : {std::array<double, 3>{1 / 3.0, 1 / 3.0, 1 / 3.0}, {0.7, 0.15, 0.15}, {0.15, 0.7, 0.15}, {0.15, 0.15, 0.7}}) {
+            V3 o = a * w[0] + b * w[1] + c * w[2];
+            bool hit = false;
+            for (size_t u = 0; u < g.tri.size() && !hit; u++)
+                hit = jacket(u) && RayHits(o, n, g.pos[size_t(g.tri[u][0])], g.pos[size_t(g.tri[u][1])], g.pos[size_t(g.tri[u][2])], kCover);
+            if (!(covered = hit)) break;
+        }
+        keep[t] = !covered;
+    }
+    // the shirt's vertices still drawn and the lining's (a trousers triangle wholly above the waist, its vertices
+    // but those on the trousers below), not the jacket's own: the weights of the 3 nearest jacket vertices
+    std::vector<bool> drawn(size_t(g.nv)), legs(size_t(g.nv));
+    for (size_t t = 0; t < g.tri.size(); t++) {
+        if (g.mats[g.mat[t]] != "fc_hero_t02") continue;
+        bool high = true;
+        for (int c = 0; c < 3; c++) high &= (place * g.pos[size_t(g.tri[t][c])]).y >= hips + kWaist;
+        for (int c = 0; c < 3; c++) (high ? drawn : legs)[size_t(g.tri[t][c])] = true;
+    }
+    for (int v = 0; v < g.nv; v++)
+        if (legs[size_t(v)]) drawn[size_t(v)] = false;
+    for (size_t t = 0; t < g.tri.size(); t++)
+        if (keep[t] && g.mat[t] == shirt)
+            for (int c = 0; c < 3; c++) drawn[size_t(g.tri[t][c])] = true;
+    auto old_bi = g.bi;
+    auto old_bw = g.bw;
+    for (int v = 0; v < g.nv; v++) {
+        if (!drawn[size_t(v)] || on_jacket[size_t(v)]) continue;
+        std::vector<std::pair<double, int>> closest;
+        for (int u = 0; u < g.nv; u++)
+            if (on_jacket[size_t(u)]) closest.push_back({Len(g.pos[size_t(u)] - g.pos[size_t(v)]), u});
+        if (closest.empty()) break;
+        std::partial_sort(closest.begin(), closest.begin() + std::min<long>(3, long(closest.size())), closest.end());
+        std::map<int, double> acc;
+        double sum = 0;
+        for (size_t q = 0; q < std::min<size_t>(3, closest.size()); q++) {
+            double f = 1.0 / std::max(closest[q].first, 1e-3);
+            for (int j = 0; j < 4; j++)
+                if (old_bw[size_t(closest[q].second)][j] > 0) acc[old_bi[size_t(closest[q].second)][j]] += f * old_bw[size_t(closest[q].second)][j];
+        }
+        std::vector<std::pair<double, int>> by;
+        for (auto& [k, w] : acc) by.push_back({w, k});
+        std::sort(by.rbegin(), by.rend());
+        if (by.size() > 4) by.resize(4);
+        for (auto& p : by) sum += p.first;
+        g.bi[size_t(v)] = {0, 0, 0, 0};
+        g.bw[size_t(v)] = {0, 0, 0, 0};
+        for (size_t j = 0; j < by.size(); j++) {
+            g.bi[size_t(v)][j] = uint8_t(by[j].second);
+            g.bw[size_t(v)][j] = float(by[j].first / sum);
+        }
+    }
+    return keep;
+}
+
 Bytes Convert(const Bytes& rmd, const Bytes& nick_in) {
     Model M = ReadModel(rmd);
     Bytes d = nick_in;
@@ -822,11 +947,16 @@ Bytes Convert(const Bytes& rmd, const Bytes& nick_in) {
         return k >= 0 ? k : 3;
     };
 
-    // textures -> one 512 sheet, each 2x, largest first
+    // textures -> one 512 sheet, each 2x, largest first; his eyes first of all, at (0, 0): the port's blink
+    // (hooks.cpp) copies the closed frame (the sheet's second quarter, at y 64) over the open one (y 0..63)
     std::vector<std::string> order = M.tex_order;
     std::stable_sort(order.begin(), order.end(), [&](const std::string& a, const std::string& b) {
+        bool ea = a == kEyeSheet, eb = b == kEyeSheet;
+        if (ea != eb) return ea;
         return M.tex.at(a).w * M.tex.at(a).h > M.tex.at(b).w * M.tex.at(b).h;
     });
+    if (!M.tex.count(kEyeSheet) || M.tex.at(kEyeSheet).w * 2 != kBlinkW || M.tex.at(kEyeSheet).h * 2 != kBlinkH * 4)
+        Fail("his eye texture (c_hero_t05, four frames) is not as expected");
     Image sheet{kAtlas, kAtlas, std::vector<std::array<uint8_t, 3>>(size_t(kAtlas) * kAtlas, {0, 0, 0})};
     std::map<std::string, std::array<int, 4>> place;
     int x = 0, y = 0, rowh = 0;
@@ -840,6 +970,8 @@ Bytes Convert(const Bytes& rmd, const Bytes& nick_in) {
         x += img.w;
         rowh = std::max(rowh, img.h);
     }
+    if (place[kMouthSheet] != std::array<int, 4>{kMouthX, kMouthY, kMouthW, kMouthH * 4})
+        Fail("his mouth texture (c_hero_t06) is not where the port expects it");
 
     // his vertices, posed on Nick
     std::vector<V3> verts, vnorm;
@@ -848,7 +980,8 @@ Bytes Convert(const Bytes& rmd, const Bytes& nick_in) {
     std::vector<Tri> tris;
     for (auto [frame, geo] : M.atomics) {
         if (geo >= M.geoms.size() || frame >= uint32_t(nf)) continue;
-        const Geometry& g = M.geoms[geo];
+        Geometry& g = M.geoms[geo];
+        std::vector<bool> keep = TuckShirt(g, Wf[frame], Wf[nodes[3]].t.y);
         if (!g.skin || g.nv < 4) continue;
         const Xf& Wg = Wf[frame];
         int base = int(verts.size());
@@ -874,6 +1007,7 @@ Bytes Convert(const Bytes& rmd, const Bytes& nick_in) {
             weights.push_back(wn);
         }
         for (size_t t = 0; t < g.tri.size(); t++) {
+            if (!keep[t]) continue;
             int mi = g.mat[t];
             if (mi < 0 || mi >= int(g.mats.size()) || !place.count(g.mats[mi])) Fail("a triangle without its texture");
             auto [px, py, pw, ph] = place[g.mats[mi]];
@@ -1092,9 +1226,22 @@ Bytes Convert(const Bytes& rmd, const Bytes& nick_in) {
     }
     uint32_t next = kTexSlot + 1 < t2.count ? Get<uint32_t>(out, t2.off + 20 * (kTexSlot + 1) + 4) : uint32_t(out.size() - t2.off);
     if (fmt != want || tb.size() > next - data) Fail("NICK.XBX's head texture is not the 512x512 slot this expects");
+    std::memcpy(&tb[(size_t(kAtlas / 4) * (kAtlas / 4) - 1) * 8], kBlinkMark, 8);
     std::memcpy(&out[t2.off + data], tb.data(), tb.size());
     return out;
 }
+
+// the version of the converter that made a M3M3NT0.XBX, from its sheet's marker: 0 for one from before the blink
+int MakotoVersion(const Bytes& xbx) {
+    Section t2 = Sec(xbx, 2);
+    if (t2.count <= kTexSlot) return 0;
+    size_t at = t2.off + Get<uint32_t>(xbx, t2.off + 20 * kTexSlot + 4) + (size_t(kAtlas / 4) * (kAtlas / 4) - 1) * 8;
+    if (at + 8 > xbx.size() || std::memcmp(&xbx[at], kBlinkMark, 6) != 0) return 0;
+    int v = (xbx[at + 6] - '0') * 10 + (xbx[at + 7] - '0');
+    return v > 0 && v < 100 ? v : 0;
+}
+// the sheet made with his eyes where the port's blink expects them (a M3M3NT0.XBX from before is made again)
+bool HasBlink(const Bytes& xbx) { return MakotoVersion(xbx) >= 1; }
 
 // ---------------------------------------------------------------- finding the files
 constexpr uint64_t kRmdHash = 0x357fcc88916ded85ull;  // BTL.CVM\MODEL\FIELD\FC_01_00.RMD on SLUS-21621
@@ -1371,13 +1518,6 @@ Bytes NickFrom(const fs::path& assets) {
         }
     }
     Fail("True Crime's Data\\Char\\NICK.XBX was not found: put the game (its files or its Xbox .iso) in " + assets.string());
-}
-
-void Write(const fs::path& p, const Bytes& b) {
-    fs::create_directories(p.parent_path());
-    std::ofstream f(p, std::ios::binary);
-    f.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
-    if (!f) Fail("cannot write " + p.string());
 }
 
 }  // namespace p3makoto
