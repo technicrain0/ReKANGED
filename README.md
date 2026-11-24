@@ -1,6 +1,7 @@
 <div align="center">
 
 # REKANGED!
+<img width="1671" height="501" alt="image" src="https://github.com/user-attachments/assets/a56ac66c-0fdb-4736-aab1-ab095b2bc40c" />
 
 ### An unofficial True Crime: Streets of LA PC Port made by recompiling the Original Xbox version and providing full modern PC options, as well as new content!
 
@@ -42,25 +43,30 @@ A full disc dump or a trimmed xiso both work, since only the `default.xbe` insid
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/c2158a3e-06ac-454f-87a8-5ef582ed94ee" />
 
 ## Features
-`Final:`
-- **Native 720p Widescreen** – the game’s own HD layout, which PAL consoles never allowed, now runs on the European release. Though you can switch between Original Stretched and True Widescreen
+`New Skins`
+<img width="2000" height="1120" alt="SKIN SHOWCASE" src="https://github.com/user-attachments/assets/449b965b-cbe1-469a-abed-79633f4d2028" />
+- **PC Skins** - Jeanette, Rikimaru, COD Soldier, Taurus, Ayame, Desperado, Officer Dick, Sandwich and Snoop Dogg
+- **Makoto Yuki** - The Protagonist of Persona 3 (Needs a copy of a US Persona 3 FES iso)
+
+`Notable Features:`
+- **PC Exclusive Content** - Music Tracks like Static X - The Only, as well as skins for now
+- **Native Widescreen** – the game’s own HD layout, which PAL consoles never allowed, now runs on the European release. Though you can switch between Original Stretched and True Widescreen
 - **Display Mode** - Option to switch between: *Windowed*, *Fullscreen*, *Borderless*.
 - **FPS Option** - The original game's aim is 60 FPS. but in here, you can switch between 30 and 60 FPS whenever you want. Kinda obsolete? but in case for low end glitches
 - **Custom Resolution** - Now you can switch between: *800x600*, *1024x768*, *1280x720*, *1600x1200*, *1920x1080*
 - **An Exit Button in the Menu** - *An exit button..* ....*an exit button.. yes*
 
 `Plans:`
-- **Dedicated Launcher and GUI** - Instead of a cmd window
 - **Raw Mouse and Keyboard Input** - An ability to play with Keyboard and Mouse properly just like the official PC Port. Would take alot of time
 - **Controller Preset 3** - My inputs. a more modernized control scheme
 - **Camera Tweaks** - Fixing the ridiculous R Stick camera by implementing a function similar to the 3D Era Grand Theft Auto Games
-- **Filters** - Switching between Xbox's default darker atmosphere, PS2's more blurry aesthetic or PC's cleaner and yellowish look
+- **Gammas/Filters** - Switching between Xbox's default darker atmosphere, PS2's more blurry aesthetic or PC's cleaner and yellowish look
 - **Free Aim** - Similar to the Official PC Port. Can be applied if Raw KBM is implemented
 - **Japanese Dub** - From the Japanese ISO
-- **PC Exclusive Content** - Music Tracks and Costumes
 - **Support For Multiple Xisos and Isos** - For Accessibility
 
 ## To Fix
+Snoop Dogg (ACTVZZL) Bugs - Misplaced Eyeball and Arm Texture
 
 ## Credits
 - [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) - Recompiler Tool
