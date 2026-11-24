@@ -1,7 +1,7 @@
 <div align="center">
 
 # REKANGED!
-<img width="1671" height="501" alt="image" src="https://github.com/user-attachments/assets/a56ac66c-0fdb-4736-aab1-ab095b2bc40c" />
+<img width="821" height="245" alt="logo" src="https://github.com/user-attachments/assets/07615886-71e6-4d74-b1a8-9eae8229643d" />
 
 ### An unofficial True Crime: Streets of LA PC Port made by recompiling the Original Xbox version and providing full modern PC options, as well as new content!
 
