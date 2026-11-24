@@ -2,7 +2,7 @@
 
 # REKANGED!
 
-### An unofficial True Crime: Streets of LA PC Port made by recompiling the Original Xbox version and providing full modern PC options
+### An unofficial True Crime: Streets of LA PC Port made by recompiling the Original Xbox version and providing full modern PC options, as well as new content!
 
 This port is made using [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) Tool
 
