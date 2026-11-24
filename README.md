@@ -61,7 +61,6 @@ A full disc dump or a trimmed xiso both work, since only the `default.xbe` insid
 - **Support For Multiple Xisos and Isos** - For Accessibility
 
 ## To Fix
-- **Minor Audio Bugs** - Loud Screeches and Choppy Noises
 
 ## Credits
 - [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) - Recompiler Tool
