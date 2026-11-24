@@ -43,7 +43,7 @@ A full disc dump or a trimmed xiso both work, since only the `default.xbe` insid
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/c2158a3e-06ac-454f-87a8-5ef582ed94ee" />
 
 ## Features
-`New Skins`
+`New Skins:`
 <img width="2000" height="1120" alt="SKIN SHOWCASE" src="https://github.com/user-attachments/assets/449b965b-cbe1-469a-abed-79633f4d2028" />
 - **PC Skins** - Jeanette, Rikimaru, COD Soldier, Taurus, Ayame, Desperado, Officer Dick, Sandwich and Snoop Dogg
 - **Makoto Yuki** - The Protagonist of Persona 3 (Needs a copy of a US Persona 3 FES iso)
@@ -67,6 +67,7 @@ A full disc dump or a trimmed xiso both work, since only the `default.xbe` insid
 
 ## To Fix
 Snoop Dogg (ACTVZZL) Bugs - Misplaced Eyeball and Arm Texture
+Desperado (RECKON) Bugs - Misplaced Eyeballs
 
 ## Credits
 - [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) - Recompiler Tool
