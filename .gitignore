@@ -31,3 +31,17 @@ captures/
 
 # Local temporary folder
 .local
+
+# game data and crash dumps, wherever they land (only the player's own copy has them)
+*.dmp
+*.xbe
+*.xbx
+*.XBX
+*.PCM
+*.RES
+*.bik
+*.wma
+*.WMA
+*.xwb
+*.afs
+*.cvm

@@ -7,7 +7,7 @@
 // The PC's character files are the Xbox's with the big data moved into the .RES: skeleton, collision boxes, bounds
 // and textures are the same bytes, the meshes use plain floats and index buffers. This rebuilds the Xbox vertex
 // formats and triangle strips (checked against Nick and M1K3, which both versions have: identical geometry, bone
-// weights, textures and skeleton).
+// weights, textures and skeleton). Two PC characters break rules the Xbox game keeps for a player (FitSkeleton).
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -127,6 +127,43 @@ struct Node {
     Bytes data;
 };
 
+// A bone record (0x30 bytes) starts with six u16s: its skinned mesh, collision box, HAnim id (0x8000 + id), next
+// sibling, first child, attach point. The Xbox game holds a player to two rules all its own characters keep:
+//  - the body's mesh (marked 0xB000 + mesh on its bone) is the last one, the head's before it. Snoop Dogg's (CHAR99)
+//    is the first, and his eyes and jewellery were drawn with the wrong meshes' matrices and textures.
+//  - attach point 15 (the head) is there: the game takes it for the player (TrueCrime 0xE7F76) and uses it without a
+//    check (0xDD8A6). Sandwich Guy (CHAR112) has no head bone, his head is the sandwich, and the game crashed on him.
+//    Point 15 goes on his neck (HAnim 8), the top of his skeleton.
+constexpr uint16_t kNoMesh = 0x7F0, kBodyMesh = 0xB000, kNoAttach = 0xAAAA, kHeadAttach = 15, kNeck = 8;
+constexpr size_t kBoneSize = 0x30;
+
+// the body's mesh by its bone's mark, or -1
+int BodyMesh(const Bytes& d, size_t skel, uint32_t bones) {
+    for (uint32_t i = 0; i < bones; i++)
+        if ((U16(d, skel + kBoneSize * i) & 0xF000) == kBodyMesh) return U16(d, skel + kBoneSize * i) & 0xFFF;
+    return -1;
+}
+bool HasAttach(const Bytes& d, size_t skel, uint32_t bones, uint16_t point) {
+    for (uint32_t i = 0; i < bones; i++)
+        if (U16(d, skel + kBoneSize * i + 10) == point) return true;
+    return false;
+}
+
+// a skin made by this converter as it is now (the setup makes one from before again)
+inline bool IsCurrent(const Bytes& xbx) {
+    if (xbx.size() < 0x50) return false;
+    uint32_t bones = 0, meshes = 0;
+    size_t skel = 0;
+    for (int i = 0; i < 8; i++) {
+        uint16_t type = U16(xbx, 0x0C + 8 * i), count = U16(xbx, 0x0E + 8 * i);
+        if (type == 4) bones = count, skel = U32(xbx, 0x10 + 8 * i);
+        if (type == 0) meshes = count;
+    }
+    if (!bones || skel + kBoneSize * bones > xbx.size()) return false;
+    int body = BodyMesh(xbx, skel, bones);
+    return (body < 0 || body == int(meshes) - 1) && HasAttach(xbx, skel, bones, kHeadAttach);
+}
+
 struct Converter {
     const Bytes& P;
     const Bytes& R;
@@ -221,6 +258,26 @@ struct Converter {
         return n;
     }
 
+    // the skeleton as the game needs a player's (see kBodyMesh): bones' meshes renumbered, the head's attach point
+    static void FitSkeleton(Bytes& out, size_t skel, uint32_t bones, const std::vector<uint16_t>& moved) {
+        for (uint32_t i = 0; i < bones; i++) {
+            size_t at = skel + kBoneSize * i;
+            uint16_t mesh = U16(out, at);
+            if ((mesh & 0xF000) == kBodyMesh && (mesh & 0xFFF) < moved.size())
+                PutAt(out, at, uint16_t(kBodyMesh | moved[mesh & 0xFFF]));
+            else if (mesh < kNoMesh && mesh < moved.size())
+                PutAt(out, at, moved[mesh]);
+        }
+        if (HasAttach(out, skel, bones, kHeadAttach)) return;
+        for (uint32_t i = 0; i < bones; i++) {
+            size_t at = skel + kBoneSize * i;
+            if (U16(out, at + 4) == (0x8000 | kNeck) && U16(out, at + 10) == kNoAttach) {
+                PutAt(out, at + 10, kHeadAttach);
+                return;
+            }
+        }
+    }
+
     Bytes Build() {
         if (P.size() < 0x60) Fail("not a character PCM");
         struct Sec { uint16_t type, count; uint32_t off; };
@@ -238,6 +295,17 @@ struct Converter {
             auto [c, o] = st[t];
             for (uint32_t i = 0; i < c; i++) nodes[t].push_back(MakeNode(o + U32(P, o + 4 * i), t));
         }
+        // the body's mesh last (FitSkeleton): where each mesh goes, kept in order otherwise
+        std::vector<uint16_t> moved(nodes[0].size());
+        for (size_t i = 0; i < moved.size(); i++) moved[i] = uint16_t(i);
+        int body = BodyMesh(P, o4, nb4);
+        if (body >= 0 && body < int(moved.size()) - 1) {
+            Node n = nodes[0][size_t(body)];
+            nodes[0].erase(nodes[0].begin() + body);
+            nodes[0].push_back(n);
+            for (size_t i = 0; i < moved.size(); i++)
+                moved[i] = int(i) == body ? uint16_t(moved.size() - 1) : uint16_t(int(i) > body ? i - 1 : i);
+        }
         Bytes out(P.begin(), P.begin() + 0x60);
         std::vector<uint32_t> colour_at;
         for (auto& b : colour_blocks) {
@@ -248,6 +316,7 @@ struct Converter {
         std::map<int, uint32_t> at;
         at[4] = uint32_t(out.size());
         out.insert(out.end(), P.begin() + o4, P.begin() + o4 + 0x30 * nb4);
+        FitSkeleton(out, at[4], nb4, moved);
 
         auto put_meshes = [&](int t) {
             PadTo(out, 16);

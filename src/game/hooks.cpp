@@ -2039,6 +2039,10 @@ struct Blink {
     std::vector<uint8_t> sheet;  // all its levels as M3M3NT0.XBX has them
     std::vector<uint32_t> copies, headers;
     std::vector<uint32_t> pool;  // every header made so far, used again on the next load instead of new ones
+    // a load asks for a look over memory, made once the loads stop for kRescanAfter (a cutscene loads a dozen)
+    bool scan = false;
+    std::chrono::steady_clock::time_point scan_at{};
+    size_t logged = size_t(-1);
     bool closed = false, twice = false;
     std::chrono::steady_clock::time_point next{}, reopen{};
     // his mouth: the frame each copy shows, and the jaw's reach as seen so far (the scale it is measured on)
@@ -2185,21 +2189,26 @@ void TcMouthPeek(uint32_t texture, const std::array<float, 4>* vsc) {
     TC_LOG_FIRST(3, "tc: mouth: jaw %.3f of the head (seen %.3f..%.3f), frame %d", jaw, g_blink.jaw_lo, g_blink.jaw_hi, f);
 }
 
-// a character loaded or a mission began: his sheet looked for again (the game thread)
+constexpr double kRescanAfter = 0.3;
+
+// after a load or a music cue (the game thread): Makoto's sheets looked for again once the loads stop (BlinkRescan)
 void TcBlinkFind() {
     uint32_t options = ::kernel::R32(kOptions);
     bool makoto = options && ::kernel::R32(options + kOptionsSkin) == kMakotoSkin;
     std::lock_guard lock(g_blink.lock);
-    if (!makoto) {
+    if (!makoto || !ReadBlinkSheet()) {
         g_blink.copies.clear();
+        g_blink.scan = false;
         d3d::g_tc_draw_peek = nullptr;  // another skin: no look at each draw
         return;
     }
-    if (!ReadBlinkSheet()) {
-        d3d::g_tc_draw_peek = nullptr;
-        return;
-    }
-    // looked for each time (a cutscene may load him once more), his eyes opened first in the copies known
+    g_blink.scan = true;
+    g_blink.scan_at = std::chrono::steady_clock::now() +
+                      std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(kRescanAfter));
+}
+
+// the look over memory (g_blink.lock held): his eyes opened first in the copies known (a cutscene may load him again)
+static void BlinkRescan() {
     for (size_t c = 0; c < g_blink.copies.size(); c++)
         if (BlinkSheetAt(g_blink.copies[c])) {
             if (g_blink.closed) WriteEyes(g_blink.copies[c], false);
@@ -2225,14 +2234,20 @@ void TcBlinkFind() {
     d3d::g_tc_draw_peek = g_blink.copies.empty() ? nullptr : TcMouthPeek;
     g_blink.next = std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
                                                           std::chrono::duration<double>(BlinkRandom(1.0, 3.0)));
-    LOGR("tc: blink: Makoto's sheet in %zu place(s)", g_blink.copies.size());
+    if (g_blink.copies.size() != g_blink.logged) LOGR("tc: blink: Makoto's sheet in %zu place(s)", g_blink.copies.size());
+    g_blink.logged = g_blink.copies.size();
 }
 
 // each frame (the UI thread): his eyes shut or open again when their time comes
 void TcBlinkTick() {
     std::unique_lock lock(g_blink.lock, std::try_to_lock);
-    if (!lock.owns_lock() || g_blink.copies.empty()) return;
+    if (!lock.owns_lock()) return;
     auto now = std::chrono::steady_clock::now();
+    if (g_blink.scan && now >= g_blink.scan_at) {
+        g_blink.scan = false;
+        BlinkRescan();
+    }
+    if (g_blink.copies.empty()) return;
     auto after = [](double s) {
         return std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(s));
     };

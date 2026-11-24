@@ -154,8 +154,16 @@ Found Detect() {
     }
     if (f.makoto_ready)
         f.p3_text = L"Makoto Yuki is already set up (assets\\extras\\Data\\Char\\M3M3NT0.XBX): the Persona 3 FES .iso is not needed";
+    // each PC skin there and made by the converter as it is now (one from before is made again)
     bool skins = true;
-    for (const auto& sk : pcskins::kSkins) skins = skins && there(chars / (std::string(sk.code) + ".XBX"));
+    for (const auto& sk : pcskins::kSkins) {
+        fs::path p = chars / (std::string(sk.code) + ".XBX");
+        try {
+            skins = skins && there(p) && pcskins::IsCurrent(pcskins::ReadFile(p));
+        } catch (const std::exception&) {
+            skins = false;
+        }
+    }
     std::vector<pctracks::Track> songs;
     if (there(a / "extras" / "pc_tracks.txt")) songs = pctracks::Read(a / "extras" / "pc_tracks.txt");
     bool music = !songs.empty();
