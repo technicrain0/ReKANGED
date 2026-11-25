@@ -27,15 +27,41 @@ A full disc dump or a trimmed xiso both work, since only the `default.xbe` insid
 ## How To Use
 
 **Requirements**:
-- Windows 10/11 64-bit, GPU with Direct3D 12
+(Setup)
+- Windows 10/11 64-bit, GPU with Direct3D 12 
 - Your own supported Xbox disc image of the game (See above for supported versions)
+(Building)
+- Windows 10/11 64-bit, GPU with Direct3D 12 
+- Your own supported Xbox disc image of the game (See above for supported versions)
+- Visual Studio 2022 with Desktop development with C++ (`build.bat` offers to add the Clang and CMake Tools)
+- Git for Windows and an internet connection for the first build
 
 **Setup**:
 1. Download the latest archive from [Releases](https://github.com/technicrain0/Streets-of-LA-Recomp/releases) and extract it.
 2. Put your chosen redump (`.iso`) or extracted xbe with your data folder beside it (`Data` folder and `default.xbe`) into the `assets` folder
 3. Run `TrueCrimeLA.exe` 
-4. Wait until the tool finishes.
-5. Press `A` after it says "Start the Game Now?" and Play!
+4. The tool will detect your files. After that, Press `"Set Up and Play"`
+5. Wait until it compiles
+6. Press `A` after it says "Start the Game Now?" and Play!
+
+**Building**:
+1. Download the Source Code or use "git clone https://github.com/technicrain0/ReKANGED" on a chosen folder
+2. Create an `assets` folder and put your chosen redump (`.iso`) or extracted xbe with your data folder beside it (`Data` folder and `default.xbe`)
+3. Run `build.bat`
+4. Wait until its finished and it will eventually say `"Play Now? "`
+5. Press Y
+6. Your build will be in "`out\build\release\`"
+(To Convert it to a working exe. Use `release.bat`)
+
+## Installing Optional Content
+**PC Content**
+1. Provide your own copy of the LTI Gray Matter True Crime PC Port
+2. On Setup, Click Browse and link your PC Copy to the path or type it in manually
+3. Press "Set Up and Play"
+
+**Makoto Yuki**
+1. Provide your own USA copy of Persona 3 FES (2006) (for Makoto Yuki) and put it in the `assets` folder
+2. Press "Set Up and Play"
 
 ## Screenshots
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/d179c0fa-505d-470a-a277-25970427c021" />
@@ -59,7 +85,7 @@ A full disc dump or a trimmed xiso both work, since only the `default.xbe` insid
 `Plans:`
 - **Multiplayer** - Hard to Implement but PC has it so its planned
 - **New Skins** 
-- **Improved Draw Distance**
+- **Improved Draw Distance and Rendering**
 - **Raw Mouse and Keyboard Input** - An ability to play with Keyboard and Mouse properly just like the official PC Port. Would take alot of time
 - **Controller Preset 3** - My inputs. a more modernized control scheme
 - **Camera Tweaks** - Fixing the ridiculous R Stick camera by implementing a function similar to the 3D Era Grand Theft Auto Games
