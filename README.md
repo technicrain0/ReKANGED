@@ -27,10 +27,10 @@ A full disc dump or a trimmed xiso both work, since only the `default.xbe` insid
 ## How To Use
 
 **Requirements**:
-(Setup)
+- `(Setup)`
 - Windows 10/11 64-bit, GPU with Direct3D 12 
 - Your own supported Xbox disc image of the game (See above for supported versions)
-(Building)
+- `(Building)`
 - Windows 10/11 64-bit, GPU with Direct3D 12 
 - Your own supported Xbox disc image of the game (See above for supported versions)
 - Visual Studio 2022 with Desktop development with C++ (`build.bat` offers to add the Clang and CMake Tools)
