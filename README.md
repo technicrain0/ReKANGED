@@ -66,8 +66,8 @@ A full disc dump or a trimmed xiso both work, since only the `default.xbe` insid
 - **Support For Multiple Xisos and Isos** - For Accessibility
 
 ## To Fix
-Snoop Dogg (ACTVZZL) Bugs - Misplaced Eyeball and Arm Texture
-Desperado (RECKON) Bugs - Misplaced Eyeballs
+- Snoop Dogg (ACTVZZL) Bugs - Misplaced Eyeball and Arm Texture
+- Desperado (RECKON) Bugs - Misplaced Eyeballs
 
 ## Credits
 - [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) - Recompiler Tool
