@@ -57,6 +57,9 @@ A full disc dump or a trimmed xiso both work, since only the `default.xbe` insid
 - **An Exit Button in the Menu** - *An exit button..* ....*an exit button.. yes*
 
 `Plans:`
+- **Multiplayer** - Hard to Implement but PC has it so its planned
+- **New Skins** 
+- **Improved Draw Distance**
 - **Raw Mouse and Keyboard Input** - An ability to play with Keyboard and Mouse properly just like the official PC Port. Would take alot of time
 - **Controller Preset 3** - My inputs. a more modernized control scheme
 - **Camera Tweaks** - Fixing the ridiculous R Stick camera by implementing a function similar to the 3D Era Grand Theft Auto Games
